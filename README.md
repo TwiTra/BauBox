@@ -13,5 +13,11 @@ Bundesländer und dauerhaft gespeicherten Vorjahren.
 
 ```bash
 cd urlaubsplaner
-python start.py
+python start.py            # nur auf diesem Rechner
+python server.py --tunnel  # von überall erreichbar, Daten bleiben hier
 ```
+
+Im zweiten Fall liegt der Plan in einer Datenbank auf dem eigenen Rechner und
+ist über einen passwortgeschützten HTTPS-Link von jedem Gerät erreichbar.
+Änderungen werden sofort gespeichert und live verteilt –
+[Einrichtung](urlaubsplaner/ZUGRIFF-VON-UEBERALL.md).

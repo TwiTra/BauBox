@@ -26,6 +26,20 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=ROOT, **kwargs)
 
+    def do_GET(self):
+        # Der Planer fragt beim Start, ob ein Sync-Server läuft. Hier läuft
+        # keiner – die klare Antwort erspart eine Fehlermeldung in der Konsole.
+        if self.path.split("?")[0] == "/api/ping":
+            body = b'{"sync":false,"server":"start.py"}'
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        super().do_GET()
+
     def end_headers(self):
         # Beim Entwickeln soll immer die aktuelle Datei ausgeliefert werden.
         self.send_header("Cache-Control", "no-store")

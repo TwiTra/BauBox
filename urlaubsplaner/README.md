@@ -12,19 +12,31 @@ fehlen. Betroffene Einträge bekommen einen roten Rahmen.*
 
 ## Starten
 
-**Empfohlen** – mit lokalem Server (Python ist auf Windows, macOS und Linux
-meist schon vorhanden):
+Es gibt zwei Betriebsarten. Beide brauchen nur Python, das auf Windows, macOS
+und Linux meist schon vorhanden ist.
+
+### Nur auf diesem Rechner
 
 ```bash
 python start.py
 ```
 
-Der Browser öffnet sich von selbst. Beenden mit `Strg+C`.
+Der Browser öffnet sich von selbst, der Plan liegt im Browser-Speicher.
+`index.html` doppelklicken geht auch – allerdings behandelt Chrome direkt
+geöffnete Dateien je nach Version als eigene Herkunft, dann kann der Plan beim
+nächsten Start fehlen. Über `http://localhost` bleibt er zuverlässig erhalten.
 
-**Alternativ** – `index.html` doppelklicken. Funktioniert ebenfalls, allerdings
-behandelt Chrome direkt geöffnete Dateien je nach Version als eigene Herkunft;
-der gespeicherte Plan kann dann beim nächsten Start fehlen. Über
-`http://localhost` bleiben die Daten zuverlässig erhalten.
+### Von mehreren Geräten, mit Link von unterwegs
+
+```bash
+python server.py --tunnel
+```
+
+Der Plan liegt dann in einer Datenbank auf diesem Rechner, ist passwortgeschützt
+und über eine HTTPS-Adresse von überall erreichbar. Jede Änderung wird sofort
+gespeichert, andere Geräte übernehmen sie in Sekunden.
+
+➡ **[Einrichtung Schritt für Schritt](ZUGRIFF-VON-UEBERALL.md)**
 
 ## Was der Planer kann
 
@@ -104,6 +116,7 @@ als Urlaubstag gezählt, halbe Tage sind möglich.
 | **Rückgängig** | 60 Schritte weit, für jede Änderung inklusive Drag & Drop. |
 | **Design** | Hell, dunkel oder nach Systemeinstellung. |
 | **Suche** | Personen filtern, nicht passende Zeilen werden ausgegraut. |
+| **Mehrere Geräte** | Mit `server.py` liegt der Plan in einer SQLite-Datenbank auf dem eigenen Rechner, geschützt per Passwort und erreichbar über einen HTTPS-Link. Änderungen werden automatisch gespeichert und live verteilt; bei gleichzeitigen Änderungen wird zusammengeführt. Frühere Fassungen lassen sich jederzeit wiederherstellen. |
 
 ## Tastenkürzel
 
@@ -123,13 +136,18 @@ als Urlaubstag gezählt, halbe Tage sind möglich.
 
 ## Wo liegen die Daten?
 
-Ausschließlich im Browser auf dem jeweiligen Rechner (`localStorage`). Es gibt
-keinen Server, keine Anmeldung, keine Übertragung nach außen.
-
+**Mit `start.py`:** ausschließlich im Browser auf dem jeweiligen Rechner
+(`localStorage`). Kein Server, keine Anmeldung, keine Übertragung nach außen.
 Das heißt umgekehrt: **Sicherungen sind wichtig.** Menü → „Sicherung speichern“
-legt eine JSON-Datei mit allen Jahren ab. Sie lässt sich auf einem anderen
-Rechner wieder einlesen – wahlweise ersetzend oder zusammenführend. Wer den
-Browser-Verlauf inklusive Websitedaten löscht, verliert sonst den Plan.
+legt eine JSON-Datei mit allen Jahren ab, die sich anderswo wieder einlesen
+lässt. Wer den Browser-Verlauf inklusive Websitedaten löscht, verliert sonst
+den Plan.
+
+**Mit `server.py`:** in `data/plan.db` auf dem Rechner, der den Planer
+bereitstellt – inklusive der letzten 300 Fassungen und einer täglichen
+JSON-Kopie unter `data/backups/`. Diese Dateien werden nie über den Webserver
+ausgeliefert. Details in
+[ZUGRIFF-VON-UEBERALL.md](ZUGRIFF-VON-UEBERALL.md).
 
 ## Aufbau
 
@@ -138,7 +156,8 @@ Reines HTML, CSS und JavaScript – kein Build-Schritt, keine Abhängigkeiten.
 ```
 urlaubsplaner/
 ├── index.html          Grundgerüst und Kopfleiste
-├── start.py            lokaler Server + Browser öffnen
+├── start.py            nur diesen Rechner bedienen
+├── server.py           Mehrgeräte-Betrieb: SQLite, Anmeldung, Sync-API, Tunnel
 ├── css/app.css         Design-System, hell und dunkel
 └── js/
     ├── utils.js        Datums-, DOM- und Formatierungshelfer
@@ -150,11 +169,16 @@ urlaubsplaner/
     ├── conflicts.js    Überschneidungen
     ├── board.js        Team-Board
     ├── stats.js        Statistik und Konten
+    ├── sync.js         Abgleich mit dem Server, Zusammenführen
     └── app.js          Steuerung, Dialoge, Import/Export
 ```
 
 Alle Berechnungen – Arbeitstage, Belegung, Konflikte – liegen in `store.js` und
 sind von der Darstellung getrennt. Die Ansichten lesen nur.
+
+`sync.js` ist optional: Läuft kein Server, bleibt der Planer im reinen
+Browser-Betrieb. Auch `server.py` kommt ohne Zusatzpakete aus – alles stammt
+aus der Python-Standardbibliothek.
 
 ## Bekannte Grenzen
 
@@ -163,8 +187,12 @@ sind von der Darstellung getrennt. Die Ansichten lesen nur.
 - Halbe Tage werden beim Urlaubskonto berücksichtigt, bei der
   Überschneidungs-Prüfung aber als ganzer Tag gewertet – wer einen halben Tag
   fehlt, fehlt für die Besetzung.
-- Es gibt keine Mehrbenutzer-Verwaltung. Wenn mehrere Personen planen sollen,
-  läuft der Abgleich über die JSON-Sicherung.
+- Es gibt keine getrennten Benutzerkonten. Im Server-Betrieb schützt ein
+  gemeinsames Passwort den Zugang – wer es hat, sieht und ändert den ganzen
+  Plan. Wer nur zuschauen soll, bekommt einen CSV- oder PDF-Auszug.
+- Im Server-Betrieb muss der bereitstellende Rechner laufen. Schläft er oder
+  ist er aus, ist der Link nicht erreichbar; die Geräte arbeiten dann offline
+  weiter und gleichen ab, sobald er wieder da ist.
 - Feiertage, die nur in einzelnen Gemeinden gelten, sind nicht hinterlegt –
   konkret Mariä Himmelfahrt in Bayern (dort nur in überwiegend katholischen
   Gemeinden) und Fronleichnam in Teilen von Sachsen und Thüringen. Solche Tage

@@ -33,6 +33,123 @@ UP.app = (function () {
       toast('danger', 'Speichern nicht möglich – der Browser-Speicher ist voll oder gesperrt.'));
 
     render();
+
+    // Abgleich mit dem Server, falls einer läuft. Ohne Server bleibt alles
+    // wie bisher rein im Browser.
+    $('#syncChip').onclick = openSyncPanel;
+    UP.sync.onStatus(updateSyncChip);
+    UP.sync.init().catch(err => console.warn('Abgleich nicht möglich', err));
+  }
+
+  /* ═══ Abgleich-Anzeige ══════════════════════════════════════════════ */
+  const SYNC_LABEL = {
+    off:          { text: '', cls: '', hint: '' },
+    connecting:   { text: 'Verbinden…', cls: 'is-saving', hint: 'Verbindung zum Server wird aufgebaut.' },
+    saving:       { text: 'Speichert…', cls: 'is-saving', hint: 'Änderung wird auf dem Server gespeichert.' },
+    synced:       { text: 'Gespeichert', cls: 'is-synced', hint: 'Alle Änderungen liegen auf dem Server.' },
+    offline:      { text: 'Offline', cls: 'is-offline', hint: 'Server nicht erreichbar. Die Änderungen liegen im Browser und werden nachgetragen, sobald die Verbindung wieder steht.' },
+    unauthorized: { text: 'Anmelden', cls: 'is-error', hint: 'Die Sitzung ist abgelaufen. Bitte neu anmelden.' },
+    error:        { text: 'Fehler', cls: 'is-error', hint: 'Der Abgleich wurde mehrfach unterbrochen.' },
+  };
+
+  function updateSyncChip(st) {
+    const chip = $('#syncChip');
+    if (!chip) return;
+    if (st.mode !== 'server') { chip.hidden = true; return; }
+    const info = SYNC_LABEL[st.status] || SYNC_LABEL.connecting;
+    chip.hidden = false;
+    chip.className = 'sync-chip ' + info.cls;
+    chip.querySelector('.sync-text').textContent = info.text;
+    chip.title = info.hint + (st.rev != null ? `\nFassung ${st.rev}` : '') + '\nKlick zeigt Details';
+    if (st.status === 'unauthorized') chip.onclick = () => { location.href = '/login'; };
+    else chip.onclick = openSyncPanel;
+  }
+
+  /* ═══ Dialog: Server und Fassungen ══════════════════════════════════ */
+  async function openSyncPanel() {
+    const body = el('div', {}, el('div.small.muted', {}, 'Serverdaten werden geladen…'));
+    const m = modal({
+      title: 'Speicherort und Fassungen',
+      sub: 'Plan auf dem eigenen Rechner',
+      size: 'wide', body,
+      footer: [
+        U.btn('soft-btn', 'x', 'Abmelden', { onclick: () => UP.sync.logout() }),
+        el('div.spacer'),
+        U.btn('soft-btn', 'download', 'Sicherung laden', { onclick: () => { window.location.href = '/api/export'; } }),
+        el('button.primary-btn', { text: 'Schließen', onclick: () => m.close() }),
+      ],
+    });
+
+    let info, versions;
+    try {
+      [info, versions] = await Promise.all([UP.sync.info(), UP.sync.history()]);
+    } catch (e) {
+      body.replaceChildren(el('div.note-box.danger', {},
+        el('span.ico', { html: U.icon('alert', 15) }),
+        el('div', {}, `Der Server antwortet nicht: ${e.message}`)));
+      return;
+    }
+
+    const st = SYNC_LABEL[UP.sync.status] || SYNC_LABEL.connecting;
+    const since = UP.sync.lastSyncedAt
+      ? new Date(UP.sync.lastSyncedAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      : '–';
+
+    body.replaceChildren(
+      el(`div.note-box${UP.sync.status === 'synced' ? '.ok' : UP.sync.status === 'offline' ? '.warn' : ''}`, {},
+        el('span.ico', { html: U.icon(UP.sync.status === 'synced' ? 'check' : 'info', 16) }),
+        el('div', {},
+          el('div', { style: { fontWeight: '700', marginBottom: '2px' } }, st.text || 'Verbunden'),
+          el('div', {}, st.hint))),
+
+      el('div.grid-4', { style: { marginTop: '14px' } },
+        kpiMini('Fassung', String(info.rev), 'auf dem Server'),
+        kpiMini('Größe', `${Math.max(1, Math.round(info.bytes / 1024))} kB`, 'Plandaten'),
+        kpiMini('Zuletzt', since, 'abgeglichen'),
+        kpiMini('Gerät', UP.sync.clientId.split('-')[0], 'dieser Browser')),
+
+      el('div.sec-title', { style: { marginTop: '20px' } }, 'Speicherort auf dem Rechner'),
+      el('div.mlist', {},
+        el('div.mrow', {},
+          el('span', { html: U.icon('archive', 16), style: { color: 'var(--faint)' } }),
+          el('div.mrow-main', {},
+            el('div.mrow-title', {}, 'Datenbank'),
+            el('div.mrow-sub.mono', {}, info.database))),
+        el('div.mrow', {},
+          el('span', { html: U.icon('copy', 16), style: { color: 'var(--faint)' } }),
+          el('div.mrow-main', {},
+            el('div.mrow-title', {}, `Tägliche Sicherungen (${info.backups.length ? info.backups.length + ' vorhanden' : 'noch keine'})`),
+            el('div.mrow-sub.mono', {}, info.backupDir)))),
+
+      el('div.sec-title', { style: { marginTop: '20px' } }, 'Frühere Fassungen'),
+      el('div.small.muted', { style: { marginBottom: '9px' } },
+        'Jede Änderung wird als eigene Fassung abgelegt. Das Wiederherstellen legt eine neue Fassung an – ' +
+        'nichts geht dabei verloren.'),
+      versions.length
+        ? el('div.mlist', {}, versions.slice(0, 25).map(v => el('div.mrow', {},
+          el('span.tag', {}, `#${v.rev}`),
+          el('div.mrow-main', {},
+            el('div.mrow-title', {}, new Date(v.createdAt).toLocaleString('de-DE')),
+            el('div.mrow-sub', {}, `${v.client || 'unbekanntes Gerät'} · ${Math.max(1, Math.round(v.bytes / 1024))} kB`)),
+          v.rev === info.rev
+            ? el('span.tag.ok', {}, 'aktuell')
+            : U.btn('soft-btn btn-sm', null, 'Wiederherstellen', {
+              onclick: async () => {
+                if (!await confirmBox({
+                  title: `Fassung #${v.rev} wiederherstellen?`,
+                  text: `Der Plan wird auf den Stand von ${new Date(v.createdAt).toLocaleString('de-DE')} ` +
+                        'zurückgesetzt. Der aktuelle Stand bleibt als Fassung erhalten und lässt sich ' +
+                        'genauso wieder zurückholen.',
+                  okLabel: 'Wiederherstellen',
+                })) return;
+                try {
+                  const rev = await UP.sync.restore(v.rev);
+                  m.close();
+                  toast('ok', `Fassung #${v.rev} wiederhergestellt (jetzt #${rev}).`);
+                } catch (e) { toast('danger', `Fehlgeschlagen: ${e.message}`); }
+              },
+            }))))
+        : el('div.small.muted', {}, 'Noch keine Änderungen aufgezeichnet.'));
   }
 
   /* ═══ Rendern ═══════════════════════════════════════════════════════ */
@@ -426,7 +543,18 @@ UP.app = (function () {
 
   /* ═══ Menü: Hauptmenü ═══════════════════════════════════════════════ */
   function openMainMenu(anchor) {
+    const server = UP.sync.mode === 'server';
     popover(anchor, [
+      ...(server ? [
+        { head: 'Server' },
+        {
+          label: 'Speicherort & Fassungen …', icon: 'archive',
+          right: UP.sync.rev != null ? `#${UP.sync.rev}` : '',
+          fn: openSyncPanel,
+        },
+        { label: 'Jetzt abgleichen', icon: 'copy', fn: () => { UP.sync.pullNow(); UP.sync.push(); toast('info', 'Abgleich angestoßen.'); } },
+        '-',
+      ] : []),
       { head: 'Verwalten' },
       { label: 'Abteilungen …', icon: 'building', fn: openDepartments },
       { label: 'Personen …', icon: 'users', fn: openPeople },
@@ -1017,8 +1145,10 @@ UP.app = (function () {
           el('div.hint', {}, 'Bei „Beantragt“ erscheinen neue Einträge gestreift und lassen sich später genehmigen.')),
         el('div.note-box', { style: { marginTop: '16px' } },
           el('span.ico', { html: U.icon('info', 15) }),
-          el('div', {}, 'Alle Daten bleiben in diesem Browser gespeichert (localStorage) – nichts wird hochgeladen. ' +
-            'Für den Wechsel auf einen anderen Rechner nutze „Sicherung speichern“ im Menü.'))),
+          UP.sync.mode === 'server'
+            ? el('div', {}, 'Diese Vorgaben gelten für alle Geräte, die auf denselben Server zugreifen.')
+            : el('div', {}, 'Alle Daten bleiben in diesem Browser gespeichert (localStorage) – nichts wird hochgeladen. ' +
+              'Für den Wechsel auf einen anderen Rechner nutze „Sicherung speichern“ im Menü.'))),
       footer: [
         el('div.spacer'),
         el('button.soft-btn', { text: 'Abbrechen', onclick: () => m.close() }),
@@ -1198,13 +1328,26 @@ UP.app = (function () {
           row([k('Esc')], 'Dialog schließen · laufendes Ziehen abbrechen'),
           row([k('?')], 'Diese Hilfe')),
 
-        el('div.note-box', { style: { marginTop: '18px' } },
-          el('span.ico', { html: U.icon('info', 15) }),
-          el('div', {}, el('b', {}, 'Wo liegen die Daten? '),
-            'Ausschließlich in diesem Browser auf diesem Rechner. Es gibt keinen Server und keine Anmeldung. ' +
-            'Lege regelmäßig eine Sicherung an (Menü → „Sicherung speichern“), besonders bevor du den Browser-Verlauf löschst.'))),
+        storageNote()),
       footer: [el('div.spacer'), el('button.primary-btn', { text: 'Verstanden', onclick: () => m.close() })],
     });
+
+    function storageNote() {
+      const server = UP.sync.mode === 'server';
+      return el('div.note-box', { style: { marginTop: '18px' } },
+        el('span.ico', { html: U.icon('info', 15) }),
+        server
+          ? el('div', {}, el('b', {}, 'Wo liegen die Daten? '),
+            'In der Datenbank auf dem Rechner, der den Planer bereitstellt. Jede Änderung wird dort ' +
+            'sofort gespeichert; andere Geräte übernehmen sie innerhalb weniger Sekunden. Fällt die ' +
+            'Verbindung aus, wird im Browser weitergearbeitet und alles nachgetragen, sobald der Server ' +
+            'wieder erreichbar ist. Frühere Fassungen und den Speicherort zeigt das Menü unter ' +
+            '„Speicherort & Fassungen“.')
+          : el('div', {}, el('b', {}, 'Wo liegen die Daten? '),
+            'Ausschließlich in diesem Browser auf diesem Rechner. Es gibt keinen Server und keine Anmeldung. ' +
+            'Lege regelmäßig eine Sicherung an (Menü → „Sicherung speichern“), besonders bevor du den ' +
+            'Browser-Verlauf löschst. Für Zugriff von mehreren Geräten siehe server.py in der Anleitung.'));
+    }
 
     function tip(n, title, text) {
       return el('div.mrow', {},
@@ -1225,7 +1368,7 @@ UP.app = (function () {
   return {
     init, render, toast, showHovercard, hideHovercard, emptyState, requireUnlocked,
     editAbsence, editPerson, editDepartment, openPerson, openPeople, openDepartments,
-    openSettings, openClosures, openYearMenu, showDayDetail, showHelp,
+    openSettings, openClosures, openYearMenu, showDayDetail, showHelp, openSyncPanel,
     afterAbsenceChange, doUndo, doRedo, confirmBox, modal, popover,
     exportBackup, importBackup, exportICS,
   };

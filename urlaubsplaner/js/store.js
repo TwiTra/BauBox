@@ -732,6 +732,33 @@ UP.store = (function () {
     emit('change', { label: 'Alle Daten gelöscht' });
   }
 
+  /* ── Abgleich mit dem Server ────────────────────────────────────────── */
+
+  /** Der synchronisierte Teil des Zustands – ohne Ansichtszustand (`ui`). */
+  function doc() {
+    return clone({ settings: state.settings, years: state.years });
+  }
+
+  /**
+   * Übernimmt einen Stand vom Server bzw. das Ergebnis einer Zusammenführung.
+   * Die Ansicht (Jahr, Zoom, Suche) bleibt erhalten. Der Rückgängig-Verlauf
+   * wird verworfen, weil er sich auf einen anderen Ausgangsstand bezöge.
+   */
+  function replaceDoc(next, { keepUndo = false } = {}) {
+    const incoming = migrate({ settings: next.settings, years: next.years, ui: state.ui });
+    state.settings = { ...state.settings, ...incoming.settings };
+    state.years = incoming.years;
+    if (!state.years[state.ui.year]) {
+      const years = Object.keys(state.years);
+      state.ui.year = years.length ? Number(years.sort().pop()) : thisYear;
+      if (!state.years[state.ui.year]) state.years[state.ui.year] = emptyYear();
+    }
+    if (!keepUndo) { undoStack.length = 0; redoStack.length = 0; }
+    cache = {};
+    persist();
+    emit('change', { remote: true });
+  }
+
   /* ── Import / Export ────────────────────────────────────────────────── */
   function exportJSON() {
     return JSON.stringify({
@@ -773,6 +800,6 @@ UP.store = (function () {
     addAbsence, updateAbsence, deleteAbsence, absencesOf,
     addClosure, deleteClosure,
     workdaysOf, quota, occupancy, absentOn, conflicts, conflictDaySet, previewImpact,
-    seedDemo, clearAll, exportJSON, importJSON, emptyYear,
+    seedDemo, clearAll, exportJSON, importJSON, emptyYear, doc, replaceDoc,
   };
 })();
