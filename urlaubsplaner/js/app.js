@@ -44,38 +44,237 @@ UP.app = (function () {
   /* ═══ Abgleich-Anzeige ══════════════════════════════════════════════ */
   const SYNC_LABEL = {
     off:          { text: '', cls: '', hint: '' },
-    connecting:   { text: 'Verbinden…', cls: 'is-saving', hint: 'Verbindung zum Server wird aufgebaut.' },
-    saving:       { text: 'Speichert…', cls: 'is-saving', hint: 'Änderung wird auf dem Server gespeichert.' },
-    synced:       { text: 'Gespeichert', cls: 'is-synced', hint: 'Alle Änderungen liegen auf dem Server.' },
-    offline:      { text: 'Offline', cls: 'is-offline', hint: 'Server nicht erreichbar. Die Änderungen liegen im Browser und werden nachgetragen, sobald die Verbindung wieder steht.' },
-    unauthorized: { text: 'Anmelden', cls: 'is-error', hint: 'Die Sitzung ist abgelaufen. Bitte neu anmelden.' },
+    connecting:   { text: 'Verbinden…', cls: 'is-saving', hint: 'Die Verbindung zum Speicherort wird aufgebaut.' },
+    saving:       { text: 'Speichert…', cls: 'is-saving', hint: 'Die Änderung wird gerade gespeichert.' },
+    synced:       { text: 'Gespeichert', cls: 'is-synced', hint: 'Alle Änderungen sind gesichert.' },
+    offline:      { text: 'Offline', cls: 'is-offline', hint: 'Der Speicherort ist nicht erreichbar. Die Änderungen liegen im Browser und werden nachgetragen, sobald die Verbindung wieder steht.' },
+    unauthorized: { text: 'Anmelden', cls: 'is-error', hint: 'Die Anmeldung ist abgelaufen oder fehlt.' },
     error:        { text: 'Fehler', cls: 'is-error', hint: 'Der Abgleich wurde mehrfach unterbrochen.' },
   };
 
   function updateSyncChip(st) {
     const chip = $('#syncChip');
     if (!chip) return;
-    if (st.mode !== 'server') { chip.hidden = true; return; }
+    if (st.mode === 'local') { chip.hidden = true; return; }
     const info = SYNC_LABEL[st.status] || SYNC_LABEL.connecting;
     chip.hidden = false;
     chip.className = 'sync-chip ' + info.cls;
     chip.querySelector('.sync-text').textContent = info.text;
-    chip.title = info.hint + (st.rev != null ? `\nFassung ${st.rev}` : '') + '\nKlick zeigt Details';
-    if (st.status === 'unauthorized') chip.onclick = () => { location.href = '/login'; };
-    else chip.onclick = openSyncPanel;
+    chip.title = `${st.label}\n${info.hint}` +
+      (st.rev != null ? `\nFassung ${st.rev}` : '') + '\nKlick zeigt Details';
+    chip.onclick = st.status === 'unauthorized' ? reconnect : openSyncPanel;
   }
 
-  /* ═══ Dialog: Server und Fassungen ══════════════════════════════════ */
+  /** „Anmelden“ in der Statusanzeige – je nach Speicherort verschieden. */
+  async function reconnect() {
+    if (UP.sync.mode === 'server') { location.href = '/login'; return; }
+    if (UP.sync.mode === 'drive') {
+      try {
+        await UP.cloud.connectInteractive();
+        toast('ok', 'Wieder mit Google Drive verbunden.');
+        UP.sync.pullNow();
+      } catch (e) {
+        toast('danger', `Anmeldung fehlgeschlagen: ${e.detail || e.message}`);
+      }
+    }
+  }
+
+  /* ═══ Dialog: Speicherort wählen ════════════════════════════════════ */
+  function openStorageDialog() {
+    const current = UP.sync.mode;
+    const pref = UP.sync.readPref();
+    const serverAvailable = current === 'server';
+
+    const option = (kind, icon, title, desc, extra) => {
+      const active = current === kind || (kind === 'local' && current === 'local');
+      return el('div.mrow', {
+        style: {
+          cursor: 'pointer', alignItems: 'flex-start', padding: '13px',
+          borderColor: active ? 'var(--primary)' : null,
+          background: active ? 'var(--primary-soft)' : null,
+        },
+        onclick: () => choose(kind),
+      },
+        el('span', {
+          html: U.icon(icon, 18),
+          style: { color: active ? 'var(--primary)' : 'var(--faint)', marginTop: '2px' },
+        }),
+        el('div.mrow-main', {},
+          el('div.mrow-title', {}, title,
+            active ? el('span.tag.info', { style: { marginLeft: '8px' } }, 'aktiv') : null),
+          el('div.mrow-sub', { style: { lineHeight: '1.5' } }, desc),
+          extra || null));
+    };
+
+    async function choose(kind) {
+      if (kind === current) return;
+      if (kind === 'drive') { m.close(); return openDriveSetup(); }
+      if (kind === 'server' && !serverAvailable) {
+        return toast('warn', 'Es läuft gerade kein eigener Server. Starte ihn mit „python server.py“ und öffne die Adresse, die dabei angezeigt wird.');
+      }
+      const ok = await confirmBox({
+        title: 'Speicherort wechseln?',
+        text: 'Der Planer lädt danach neu und arbeitet mit dem Stand des neuen Speicherorts. ' +
+              'Sichere vorher über das Menü, wenn du unsicher bist.',
+        okLabel: 'Wechseln',
+      });
+      if (ok) UP.sync.useStorage(kind);
+    }
+
+    const m = modal({
+      title: 'Speicherort',
+      sub: `derzeit: ${UP.sync.label}`,
+      body: el('div', {},
+        el('div.mlist', {},
+          option('local', 'user', 'Nur dieser Browser',
+            'Der Plan bleibt auf diesem Gerät. Keine Einrichtung nötig, funktioniert ohne Internet. ' +
+            'Andere Geräte sehen ihn nicht.'),
+          option('server', 'building', 'Eigener Server auf dem PC',
+            'Der Plan liegt in einer Datenbank auf deinem Rechner und ist über einen Link erreichbar, ' +
+            'solange der Rechner läuft. Start mit „python server.py --tunnel“.',
+            serverAvailable ? null : el('div.small', {
+              style: { color: 'var(--warn)', marginTop: '5px' },
+            }, 'Zurzeit nicht erreichbar – der Server läuft nicht oder du hast die Seite anders geöffnet.')),
+          option('drive', 'archive', 'Google Drive',
+            'Der Plan liegt als eine Datei in deinem eigenen Google Drive. Alle Geräte greifen darauf zu, ' +
+            'der PC muss dafür nicht laufen.',
+            UP.cloud.configured()
+              ? null
+              : el('div.small', { style: { color: 'var(--muted)', marginTop: '5px' } },
+                'Einmalige Einrichtung nötig – der Planer führt dich durch.'))),
+
+        el('div.note-box', { style: { marginTop: '16px' } },
+          el('span.ico', { html: U.icon('info', 15) }),
+          el('div', {}, el('b', {}, 'Ein Wechsel löscht nichts. '),
+            'Der Plan bleibt an beiden Orten liegen. Ist der neue Speicherort noch leer, wird der ' +
+            'aktuelle Plan dorthin übertragen; hat er schon Daten, werden beide zusammengeführt.'))),
+      footer: [
+        el('div.spacer'),
+        el('button.primary-btn', { text: 'Schließen', onclick: () => m.close() }),
+      ],
+    });
+  }
+
+  /* ═══ Dialog: Google Drive einrichten ═══════════════════════════════ */
+  function openDriveSetup() {
+    const idInput = el('input', {
+      type: 'text', value: UP.cloud.clientIdValue(),
+      placeholder: '1234567890-abc….apps.googleusercontent.com',
+      spellcheck: 'false',
+    });
+    const statusBox = el('div');
+
+    const step = (n, title, body) => el('div.mrow', { style: { alignItems: 'flex-start' } },
+      el('div', {
+        style: {
+          width: '24px', height: '24px', borderRadius: '7px', flex: '0 0 auto',
+          display: 'grid', placeItems: 'center', background: 'var(--primary-soft)',
+          color: 'var(--primary)', fontWeight: '800', fontSize: '11.5px', marginTop: '1px',
+        },
+      }, n),
+      el('div.mrow-main', {},
+        el('div.mrow-title', {}, title),
+        el('div.mrow-sub', { style: { lineHeight: '1.55' } }, body)));
+
+    const m = modal({
+      title: 'Google Drive einrichten',
+      sub: 'einmalig, danach auf jedem Gerät nur noch anmelden',
+      size: 'wide',
+      body: el('div', {},
+        el('div.note-box', {},
+          el('span.ico', { html: U.icon('info', 15) }),
+          el('div', {}, 'Damit der Planer auf dein Drive zugreifen darf, braucht er eine ' +
+            'Zugangskennung, die du dir in der Google Cloud Console selbst ausstellst. ' +
+            'Das ist kostenlos und dauert etwa zehn Minuten. Die ausführliche Anleitung mit ' +
+            'allen Klickwegen steht in der Datei ',
+            el('span.mono', {}, 'CLOUD-EINRICHTEN.md'), '.')),
+
+        el('div.sec-title', { style: { marginTop: '18px' } }, 'Kurzfassung'),
+        el('div.mlist', {},
+          step('1', 'Projekt anlegen',
+            el('span', {}, 'Auf ', el('span.mono', {}, 'console.cloud.google.com'),
+              ' anmelden und oben ein neues Projekt anlegen, z. B. „Urlaubsplaner“.')),
+          step('2', 'Drive-API einschalten',
+            'Unter „APIs & Dienste“ → „Bibliothek“ nach „Google Drive API“ suchen und aktivieren.'),
+          step('3', 'Zustimmungsseite ausfüllen',
+            'Unter „APIs & Dienste“ → „OAuth-Zustimmungsbildschirm“ den Typ „Extern“ wählen, ' +
+            'Namen und deine E-Mail eintragen und dich selbst als Testnutzer hinzufügen.'),
+          step('4', 'Kennung erzeugen',
+            el('span', {}, 'Unter „Anmeldedaten“ → „Anmeldedaten erstellen“ → „OAuth-Client-ID“, ' +
+              'Typ „Webanwendung“. Bei „Autorisierte JavaScript-Quellen“ die Adresse eintragen, ' +
+              'unter der du den Planer öffnest – aktuell: ',
+              el('span.mono', { style: { color: 'var(--primary)' } }, location.origin), '.')),
+          step('5', 'Kennung hier einsetzen',
+            'Die erzeugte Client-ID unten einfügen und auf „Verbinden“ klicken.')),
+
+        el('div.field', { style: { marginTop: '18px' } },
+          el('label', {}, 'Client-ID'), idInput,
+          el('div.hint', {}, 'Diese Angabe ist nicht geheim. Sie lässt sich auch dauerhaft in ' +
+            'js/config.js eintragen, dann entfällt der Schritt auf jedem weiteren Gerät.')),
+        statusBox),
+      footer: [
+        el('div.spacer'),
+        el('button.soft-btn', { text: 'Abbrechen', onclick: () => m.close() }),
+        U.btn('primary-btn', 'check', 'Verbinden', {
+          onclick: async e => {
+            const btn = e.currentTarget;
+            const id = idInput.value.trim();
+            if (!/\.apps\.googleusercontent\.com$/.test(id)) {
+              statusBox.replaceChildren(el('div.note-box.warn', { style: { marginTop: '12px' } },
+                el('span.ico', { html: U.icon('alert', 15) }),
+                el('div', {}, 'Das sieht nicht nach einer Client-ID aus. Sie endet auf ' +
+                  '„.apps.googleusercontent.com“.')));
+              return;
+            }
+            UP.cloud.setClientId(id);
+            btn.disabled = true;
+            statusBox.replaceChildren(el('div.note-box', { style: { marginTop: '12px' } },
+              el('span.ico', { html: U.icon('clock', 15) }),
+              el('div', {}, 'Google fragt gleich nach deiner Zustimmung …')));
+            try {
+              await UP.cloud.connectInteractive();
+              statusBox.replaceChildren(el('div.note-box.ok', { style: { marginTop: '12px' } },
+                el('span.ico', { html: U.icon('check', 15) }),
+                el('div', {}, 'Verbunden. Der Planer lädt jetzt neu und arbeitet ab sofort mit Drive.')));
+              setTimeout(() => UP.sync.useStorage('drive'), 900);
+            } catch (err) {
+              btn.disabled = false;
+              statusBox.replaceChildren(el('div.note-box.danger', { style: { marginTop: '12px' } },
+                el('span.ico', { html: U.icon('alert', 15) }),
+                el('div', {},
+                  el('div', { style: { fontWeight: '700', marginBottom: '3px' } }, 'Verbindung fehlgeschlagen'),
+                  el('div', {}, driveErrorHint(err)))));
+            }
+          },
+        }),
+      ],
+    });
+  }
+
+  function driveErrorHint(err) {
+    const d = String(err.detail || err.message || '');
+    if (/popup/i.test(d)) return 'Das Anmeldefenster wurde blockiert. Erlaube Pop-ups für diese Seite und versuche es erneut.';
+    if (/redirect_uri|origin/i.test(d)) return `Google akzeptiert die Adresse ${location.origin} noch nicht. Trage sie in der Cloud Console unter „Autorisierte JavaScript-Quellen“ ein.`;
+    if (/access_denied/i.test(d)) return 'Die Freigabe wurde abgelehnt – oder dein Konto steht noch nicht als Testnutzer auf dem Zustimmungsbildschirm.';
+    if (/invalid_client/i.test(d)) return 'Die Client-ID ist unbekannt. Stimmt sie genau mit der aus der Cloud Console überein?';
+    return d || 'Unbekannter Fehler.';
+  }
+
+  /* ═══ Dialog: Speicherort und Fassungen ═════════════════════════════ */
   async function openSyncPanel() {
-    const body = el('div', {}, el('div.small.muted', {}, 'Serverdaten werden geladen…'));
+    if (UP.sync.mode === 'local') return openStorageDialog();
+
+    const body = el('div', {}, el('div.small.muted', {}, 'Daten werden geladen…'));
     const m = modal({
       title: 'Speicherort und Fassungen',
-      sub: 'Plan auf dem eigenen Rechner',
+      sub: UP.sync.label,
       size: 'wide', body,
       footer: [
-        U.btn('soft-btn', 'x', 'Abmelden', { onclick: () => UP.sync.logout() }),
+        U.btn('soft-btn', 'settings', 'Speicherort wechseln', {
+          onclick: () => { m.close(); openStorageDialog(); },
+        }),
         el('div.spacer'),
-        U.btn('soft-btn', 'download', 'Sicherung laden', { onclick: () => { window.location.href = '/api/export'; } }),
+        U.btn('soft-btn', 'download', 'Sicherung laden', { onclick: exportBackup }),
         el('button.primary-btn', { text: 'Schließen', onclick: () => m.close() }),
       ],
     });
@@ -86,7 +285,11 @@ UP.app = (function () {
     } catch (e) {
       body.replaceChildren(el('div.note-box.danger', {},
         el('span.ico', { html: U.icon('alert', 15) }),
-        el('div', {}, `Der Server antwortet nicht: ${e.message}`)));
+        el('div', {},
+          el('div', { style: { fontWeight: '700', marginBottom: '3px' } }, 'Der Speicherort antwortet nicht'),
+          el('div', {}, e.name === 'AuthError'
+            ? 'Die Anmeldung ist abgelaufen. Über die Statusanzeige oben rechts neu anmelden.'
+            : e.message))));
       return;
     }
 
@@ -103,53 +306,55 @@ UP.app = (function () {
           el('div', {}, st.hint))),
 
       el('div.grid-4', { style: { marginTop: '14px' } },
-        kpiMini('Fassung', String(info.rev), 'auf dem Server'),
-        kpiMini('Größe', `${Math.max(1, Math.round(info.bytes / 1024))} kB`, 'Plandaten'),
+        kpiMini('Fassung', String(info.rev ?? '–'), UP.sync.label),
+        kpiMini('Größe', info.bytes ? `${Math.max(1, Math.round(info.bytes / 1024))} kB` : '–', 'Plandaten'),
         kpiMini('Zuletzt', since, 'abgeglichen'),
         kpiMini('Gerät', UP.sync.clientId.split('-')[0], 'dieser Browser')),
 
-      el('div.sec-title', { style: { marginTop: '20px' } }, 'Speicherort auf dem Rechner'),
-      el('div.mlist', {},
-        el('div.mrow', {},
-          el('span', { html: U.icon('archive', 16), style: { color: 'var(--faint)' } }),
-          el('div.mrow-main', {},
-            el('div.mrow-title', {}, 'Datenbank'),
-            el('div.mrow-sub.mono', {}, info.database))),
-        el('div.mrow', {},
-          el('span', { html: U.icon('copy', 16), style: { color: 'var(--faint)' } }),
-          el('div.mrow-main', {},
-            el('div.mrow-title', {}, `Tägliche Sicherungen (${info.backups.length ? info.backups.length + ' vorhanden' : 'noch keine'})`),
-            el('div.mrow-sub.mono', {}, info.backupDir)))),
+      el('div.sec-title', { style: { marginTop: '20px' } }, info.where || 'Speicherort'),
+      el('div.mlist', {}, (info.lines || []).map(line => el('div.mrow', {},
+        el('span', { html: U.icon(line.icon || 'archive', 16), style: { color: 'var(--faint)' } }),
+        el('div.mrow-main', {},
+          el('div.mrow-title', {}, line.title),
+          line.href
+            ? el('a.mrow-sub', { href: line.href, target: '_blank', rel: 'noopener' }, 'im Browser öffnen')
+            : el('div.mrow-sub.mono', {}, line.value))))),
+
+      info.note
+        ? el('div.small.muted', { style: { marginTop: '10px', lineHeight: '1.5' } }, info.note)
+        : null,
 
       el('div.sec-title', { style: { marginTop: '20px' } }, 'Frühere Fassungen'),
       el('div.small.muted', { style: { marginBottom: '9px' } },
-        'Jede Änderung wird als eigene Fassung abgelegt. Das Wiederherstellen legt eine neue Fassung an – ' +
-        'nichts geht dabei verloren.'),
+        'Das Wiederherstellen legt selbst eine neue Fassung an – der aktuelle Stand geht dabei nicht verloren.'),
       versions.length
         ? el('div.mlist', {}, versions.slice(0, 25).map(v => el('div.mrow', {},
-          el('span.tag', {}, `#${v.rev}`),
+          el('span.tag', {}, typeof v.rev === 'number' ? `#${v.rev}` : 'Fassung'),
           el('div.mrow-main', {},
             el('div.mrow-title', {}, new Date(v.createdAt).toLocaleString('de-DE')),
-            el('div.mrow-sub', {}, `${v.client || 'unbekanntes Gerät'} · ${Math.max(1, Math.round(v.bytes / 1024))} kB`)),
-          v.rev === info.rev
+            el('div.mrow-sub', {}, [
+              v.client || 'unbekanntes Gerät',
+              v.bytes ? `${Math.max(1, Math.round(v.bytes / 1024))} kB` : null,
+            ].filter(Boolean).join(' · '))),
+          String(v.rev) === String(info.rev)
             ? el('span.tag.ok', {}, 'aktuell')
             : U.btn('soft-btn btn-sm', null, 'Wiederherstellen', {
               onclick: async () => {
                 if (!await confirmBox({
-                  title: `Fassung #${v.rev} wiederherstellen?`,
+                  title: 'Fassung wiederherstellen?',
                   text: `Der Plan wird auf den Stand von ${new Date(v.createdAt).toLocaleString('de-DE')} ` +
                         'zurückgesetzt. Der aktuelle Stand bleibt als Fassung erhalten und lässt sich ' +
                         'genauso wieder zurückholen.',
                   okLabel: 'Wiederherstellen',
                 })) return;
                 try {
-                  const rev = await UP.sync.restore(v.rev);
+                  await UP.sync.restore(v.rev);
                   m.close();
-                  toast('ok', `Fassung #${v.rev} wiederhergestellt (jetzt #${rev}).`);
+                  toast('ok', 'Fassung wiederhergestellt.');
                 } catch (e) { toast('danger', `Fehlgeschlagen: ${e.message}`); }
               },
             }))))
-        : el('div.small.muted', {}, 'Noch keine Änderungen aufgezeichnet.'));
+        : el('div.small.muted', {}, 'Noch keine früheren Fassungen vorhanden.'));
   }
 
   /* ═══ Rendern ═══════════════════════════════════════════════════════ */
@@ -543,18 +748,33 @@ UP.app = (function () {
 
   /* ═══ Menü: Hauptmenü ═══════════════════════════════════════════════ */
   function openMainMenu(anchor) {
-    const server = UP.sync.mode === 'server';
+    const synced = UP.sync.mode !== 'local';
     popover(anchor, [
-      ...(server ? [
-        { head: 'Server' },
-        {
-          label: 'Speicherort & Fassungen …', icon: 'archive',
-          right: UP.sync.rev != null ? `#${UP.sync.rev}` : '',
-          fn: openSyncPanel,
+      { head: 'Speicherort' },
+      {
+        label: synced ? 'Speicherort & Fassungen …' : 'Speicherort wählen …',
+        icon: synced ? 'archive' : 'settings',
+        right: synced ? UP.sync.label : 'nur dieser Browser',
+        fn: synced ? openSyncPanel : openStorageDialog,
+      },
+      ...(synced ? [{
+        label: 'Jetzt abgleichen', icon: 'copy',
+        fn: () => { UP.sync.pullNow(); UP.sync.push(); toast('info', 'Abgleich angestoßen.'); },
+      }, {
+        label: UP.sync.mode === 'drive' ? 'Google-Verbindung trennen' : 'Abmelden',
+        icon: 'x', danger: true,
+        fn: async () => {
+          if (await confirmBox({
+            title: UP.sync.mode === 'drive' ? 'Verbindung zu Google Drive trennen?' : 'Abmelden?',
+            text: UP.sync.mode === 'drive'
+              ? 'Die Datei bleibt in deinem Drive liegen. Dieser Browser arbeitet danach wieder nur ' +
+                'lokal weiter; erneut verbinden geht jederzeit über „Speicherort“.'
+              : 'Dieses Gerät meldet sich vom Server ab. Der Plan bleibt dort gespeichert.',
+            okLabel: UP.sync.mode === 'drive' ? 'Trennen' : 'Abmelden', danger: true,
+          })) UP.sync.logout();
         },
-        { label: 'Jetzt abgleichen', icon: 'copy', fn: () => { UP.sync.pullNow(); UP.sync.push(); toast('info', 'Abgleich angestoßen.'); } },
-        '-',
-      ] : []),
+      }] : []),
+      '-',
       { head: 'Verwalten' },
       { label: 'Abteilungen …', icon: 'building', fn: openDepartments },
       { label: 'Personen …', icon: 'users', fn: openPeople },
@@ -1333,20 +1553,23 @@ UP.app = (function () {
     });
 
     function storageNote() {
-      const server = UP.sync.mode === 'server';
+      const texts = {
+        server: 'In der Datenbank auf dem Rechner, der den Planer bereitstellt. Jede Änderung wird dort ' +
+          'sofort gespeichert; andere Geräte übernehmen sie innerhalb weniger Sekunden. Fällt die ' +
+          'Verbindung aus, wird im Browser weitergearbeitet und alles nachgetragen, sobald der Server ' +
+          'wieder erreichbar ist.',
+        drive: 'Als eine Datei in deinem eigenen Google Drive. Alle Geräte arbeiten auf derselben Datei; ' +
+          'Änderungen werden sofort hochgeladen und von den anderen Geräten in Sekunden übernommen. ' +
+          'Ohne Verbindung wird im Browser weitergearbeitet und später nachgetragen.',
+        local: 'Ausschließlich in diesem Browser auf diesem Gerät. Es gibt keinen Server und keine Anmeldung. ' +
+          'Lege regelmäßig eine Sicherung an (Menü → „Sicherung speichern“), besonders bevor du den ' +
+          'Browser-Verlauf löschst.',
+      };
       return el('div.note-box', { style: { marginTop: '18px' } },
         el('span.ico', { html: U.icon('info', 15) }),
-        server
-          ? el('div', {}, el('b', {}, 'Wo liegen die Daten? '),
-            'In der Datenbank auf dem Rechner, der den Planer bereitstellt. Jede Änderung wird dort ' +
-            'sofort gespeichert; andere Geräte übernehmen sie innerhalb weniger Sekunden. Fällt die ' +
-            'Verbindung aus, wird im Browser weitergearbeitet und alles nachgetragen, sobald der Server ' +
-            'wieder erreichbar ist. Frühere Fassungen und den Speicherort zeigt das Menü unter ' +
-            '„Speicherort & Fassungen“.')
-          : el('div', {}, el('b', {}, 'Wo liegen die Daten? '),
-            'Ausschließlich in diesem Browser auf diesem Rechner. Es gibt keinen Server und keine Anmeldung. ' +
-            'Lege regelmäßig eine Sicherung an (Menü → „Sicherung speichern“), besonders bevor du den ' +
-            'Browser-Verlauf löschst. Für Zugriff von mehreren Geräten siehe server.py in der Anleitung.'));
+        el('div', {}, el('b', {}, 'Wo liegen die Daten? '),
+          texts[UP.sync.mode] || texts.local,
+          ' Wechseln lässt sich das jederzeit über das Menü unter „Speicherort“.'));
     }
 
     function tip(n, title, text) {
@@ -1368,7 +1591,8 @@ UP.app = (function () {
   return {
     init, render, toast, showHovercard, hideHovercard, emptyState, requireUnlocked,
     editAbsence, editPerson, editDepartment, openPerson, openPeople, openDepartments,
-    openSettings, openClosures, openYearMenu, showDayDetail, showHelp, openSyncPanel,
+    openSettings, openClosures, openYearMenu, showDayDetail, showHelp,
+    openSyncPanel, openStorageDialog, openDriveSetup,
     afterAbsenceChange, doUndo, doRedo, confirmBox, modal, popover,
     exportBackup, importBackup, exportICS,
   };

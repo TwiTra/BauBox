@@ -12,31 +12,39 @@ fehlen. Betroffene Einträge bekommen einen roten Rahmen.*
 
 ## Starten
 
-Es gibt zwei Betriebsarten. Beide brauchen nur Python, das auf Windows, macOS
-und Linux meist schon vorhanden ist.
-
-### Nur auf diesem Rechner
-
 ```bash
 python start.py
 ```
 
-Der Browser öffnet sich von selbst, der Plan liegt im Browser-Speicher.
-`index.html` doppelklicken geht auch – allerdings behandelt Chrome direkt
-geöffnete Dateien je nach Version als eigene Herkunft, dann kann der Plan beim
-nächsten Start fehlen. Über `http://localhost` bleibt er zuverlässig erhalten.
+Der Browser öffnet sich von selbst. Python ist auf Windows, macOS und Linux
+meist schon vorhanden. `index.html` doppelklicken geht auch – allerdings
+behandelt Chrome direkt geöffnete Dateien je nach Version als eigene Herkunft,
+dann kann der Plan beim nächsten Start fehlen. Über `http://localhost` bleibt
+er zuverlässig erhalten.
 
-### Von mehreren Geräten, mit Link von unterwegs
+## Wo der Plan gespeichert wird
 
-```bash
-python server.py --tunnel
-```
+Drei Möglichkeiten, jederzeit umschaltbar über Menü → **Speicherort**:
 
-Der Plan liegt dann in einer Datenbank auf diesem Rechner, ist passwortgeschützt
-und über eine HTTPS-Adresse von überall erreichbar. Jede Änderung wird sofort
-gespeichert, andere Geräte übernehmen sie in Sekunden.
+| | Einrichtung | Von mehreren Geräten | PC muss laufen |
+|---|---|---|---|
+| **Nur dieser Browser** | keine | nein | – |
+| **Eigener Server auf dem PC** | `python server.py --tunnel` | ja | ja |
+| **Google Drive** | einmalig ~10 Minuten | ja | nein |
 
-➡ **[Einrichtung Schritt für Schritt](ZUGRIFF-VON-UEBERALL.md)**
+**Eigener Server:** Der Plan liegt in einer SQLite-Datenbank auf deinem
+Rechner, ist passwortgeschützt und über eine HTTPS-Adresse von überall
+erreichbar. Nichts verlässt das Haus.
+➡ [ZUGRIFF-VON-UEBERALL.md](ZUGRIFF-VON-UEBERALL.md)
+
+**Google Drive:** Der Plan liegt als lesbare JSON-Datei in deinem eigenen
+Drive. Alle Geräte greifen darauf zu, ein Dauerbetrieb des PCs entfällt.
+➡ [CLOUD-EINRICHTEN.md](CLOUD-EINRICHTEN.md)
+
+In beiden Fällen gilt: Jede Änderung wird automatisch gespeichert, andere
+Geräte übernehmen sie von selbst, und bei gleichzeitigen Änderungen wird
+zusammengeführt statt überschrieben. Ohne Verbindung wird im Browser
+weitergearbeitet und später nachgetragen.
 
 ## Was der Planer kann
 
@@ -116,7 +124,7 @@ als Urlaubstag gezählt, halbe Tage sind möglich.
 | **Rückgängig** | 60 Schritte weit, für jede Änderung inklusive Drag & Drop. |
 | **Design** | Hell, dunkel oder nach Systemeinstellung. |
 | **Suche** | Personen filtern, nicht passende Zeilen werden ausgegraut. |
-| **Mehrere Geräte** | Mit `server.py` liegt der Plan in einer SQLite-Datenbank auf dem eigenen Rechner, geschützt per Passwort und erreichbar über einen HTTPS-Link. Änderungen werden automatisch gespeichert und live verteilt; bei gleichzeitigen Änderungen wird zusammengeführt. Frühere Fassungen lassen sich jederzeit wiederherstellen. |
+| **Mehrere Geräte** | Wahlweise über einen eigenen Server auf dem PC oder über Google Drive – siehe oben. Änderungen werden automatisch gespeichert und live verteilt; bei gleichzeitigen Änderungen wird zusammengeführt. Frühere Fassungen lassen sich jederzeit wiederherstellen. |
 
 ## Tastenkürzel
 
@@ -149,6 +157,16 @@ JSON-Kopie unter `data/backups/`. Diese Dateien werden nie über den Webserver
 ausgeliefert. Details in
 [ZUGRIFF-VON-UEBERALL.md](ZUGRIFF-VON-UEBERALL.md).
 
+**Mit Google Drive:** als Datei `Urlaubsplaner.json` im eigenen Drive, lesbar
+und selbst sicherbar. Der Planer benutzt den Bereich `drive.file` und sieht
+damit ausschließlich diese eine, von ihm angelegte Datei – der übrige Inhalt
+des Drive bleibt für ihn unsichtbar. Details in
+[CLOUD-EINRICHTEN.md](CLOUD-EINRICHTEN.md).
+
+> Wer Krankheitstage erfasst, verarbeitet Gesundheitsdaten nach Art. 9 DSGVO.
+> Bei den ersten beiden Speicherorten bleiben sie im Haus; bei Google Drive
+> nicht. Das im Zweifel vorher klären.
+
 ## Aufbau
 
 Reines HTML, CSS und JavaScript – kein Build-Schritt, keine Abhängigkeiten.
@@ -157,7 +175,7 @@ Reines HTML, CSS und JavaScript – kein Build-Schritt, keine Abhängigkeiten.
 urlaubsplaner/
 ├── index.html          Grundgerüst und Kopfleiste
 ├── start.py            nur diesen Rechner bedienen
-├── server.py           Mehrgeräte-Betrieb: SQLite, Anmeldung, Sync-API, Tunnel
+├── server.py           eigener Server: SQLite, Anmeldung, Sync-API, Tunnel
 ├── css/app.css         Design-System, hell und dunkel
 └── js/
     ├── utils.js        Datums-, DOM- und Formatierungshelfer
@@ -169,16 +187,20 @@ urlaubsplaner/
     ├── conflicts.js    Überschneidungen
     ├── board.js        Team-Board
     ├── stats.js        Statistik und Konten
-    ├── sync.js         Abgleich mit dem Server, Zusammenführen
+    ├── sync.js         Abgleich und Zusammenführung, Transport „eigener Server“
+    ├── cloud.js        Transport „Google Drive“
+    ├── config.js       Kennung für die Drive-Anbindung
     └── app.js          Steuerung, Dialoge, Import/Export
 ```
 
 Alle Berechnungen – Arbeitstage, Belegung, Konflikte – liegen in `store.js` und
 sind von der Darstellung getrennt. Die Ansichten lesen nur.
 
-`sync.js` ist optional: Läuft kein Server, bleibt der Planer im reinen
-Browser-Betrieb. Auch `server.py` kommt ohne Zusatzpakete aus – alles stammt
-aus der Python-Standardbibliothek.
+Der Abgleich ist in zwei Teile getrennt: `sync.js` enthält die Logik
+(Zusammenführung, Warteschlange, Statusanzeige), der Weg zum Speicher steckt in
+austauschbaren Transporten. Ohne eingerichteten Speicherort bleibt der Planer
+im reinen Browser-Betrieb. Auch `server.py` kommt ohne Zusatzpakete aus – alles
+stammt aus der Python-Standardbibliothek.
 
 ## Bekannte Grenzen
 
@@ -192,7 +214,10 @@ aus der Python-Standardbibliothek.
   Plan. Wer nur zuschauen soll, bekommt einen CSV- oder PDF-Auszug.
 - Im Server-Betrieb muss der bereitstellende Rechner laufen. Schläft er oder
   ist er aus, ist der Link nicht erreichbar; die Geräte arbeiten dann offline
-  weiter und gleichen ab, sobald er wieder da ist.
+  weiter und gleichen ab, sobald er wieder da ist. Bei Google Drive entfällt das.
+- Bei Google Drive treffen Änderungen anderer Geräte nach etwa acht Sekunden
+  ein, beim eigenen Server sofort – Drive bietet keine Möglichkeit, auf
+  Änderungen zu warten, es muss regelmäßig nachgefragt werden.
 - Feiertage, die nur in einzelnen Gemeinden gelten, sind nicht hinterlegt –
   konkret Mariä Himmelfahrt in Bayern (dort nur in überwiegend katholischen
   Gemeinden) und Fronleichnam in Teilen von Sachsen und Thüringen. Solche Tage

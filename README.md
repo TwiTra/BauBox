@@ -13,11 +13,16 @@ Bundesländer und dauerhaft gespeicherten Vorjahren.
 
 ```bash
 cd urlaubsplaner
-python start.py            # nur auf diesem Rechner
-python server.py --tunnel  # von überall erreichbar, Daten bleiben hier
+python start.py
 ```
 
-Im zweiten Fall liegt der Plan in einer Datenbank auf dem eigenen Rechner und
-ist über einen passwortgeschützten HTTPS-Link von jedem Gerät erreichbar.
-Änderungen werden sofort gespeichert und live verteilt –
-[Einrichtung](urlaubsplaner/ZUGRIFF-VON-UEBERALL.md).
+Der Plan kann an drei Orten liegen, umschaltbar im Menü:
+
+| | Von mehreren Geräten | PC muss laufen | Einrichtung |
+|---|---|---|---|
+| Nur dieser Browser | nein | – | keine |
+| [Eigener Server auf dem PC](urlaubsplaner/ZUGRIFF-VON-UEBERALL.md) | ja | ja | ein Befehl |
+| [Google Drive](urlaubsplaner/CLOUD-EINRICHTEN.md) | ja | nein | ~10 Minuten |
+
+In beiden Mehrgeräte-Varianten wird automatisch gespeichert, live verteilt und
+bei gleichzeitigen Änderungen zusammengeführt statt überschrieben.
