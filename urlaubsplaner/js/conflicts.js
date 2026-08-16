@@ -240,15 +240,15 @@ UP.views.konflikte = (function () {
   }
 
   /* ── Export ─────────────────────────────────────────────────────────── */
-  function exportConflicts() {
+  async function exportConflicts() {
     const list = S.conflicts();
     const rows = [['Abteilung', 'Von', 'Bis', 'Arbeitstage', 'Gleichzeitig abwesend', 'Erlaubt', 'Überschreitung', 'Betroffene Personen']];
     for (const c of list) {
       rows.push([c.deptName, U.fmt(c.from), U.fmt(c.to), c.workdays, c.peak, c.max, c.over,
         c.people.map(p => p.person.name).join(', ')]);
     }
-    U.download(`Ueberschneidungen_${S.year()}.csv`, U.csvRows(rows), 'text/csv');
-    UP.app.toast('ok', 'CSV-Datei wurde erstellt.');
+    if (await U.download(`Ueberschneidungen_${S.year()}.csv`, U.csvRows(rows), 'text/csv'))
+      UP.app.toast('ok', 'CSV-Datei wurde erstellt.');
   }
 
   return { toolbar, render };

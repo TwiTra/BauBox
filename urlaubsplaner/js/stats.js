@@ -255,7 +255,7 @@ UP.views.statistik = (function () {
   }
 
   /* ── Export ─────────────────────────────────────────────────────────── */
-  function exportQuota() {
+  async function exportQuota() {
     const yd = S.currentYear();
     const rows = [['Person', 'Abteilung', 'Rolle', 'Anspruch', 'Übertrag', 'Verfügbar', 'Genehmigt', 'Beantragt', 'Rest', 'Sonstige Abwesenheit']];
     for (const p of yd.people) {
@@ -264,11 +264,11 @@ UP.views.statistik = (function () {
       rows.push([p.name, d ? d.name : '', p.role || '', U.num(q.entitlement), U.num(q.carryover),
         U.num(q.total), U.num(q.approved), U.num(q.pending), U.num(q.remaining), U.num(q.other)]);
     }
-    U.download(`Urlaubskonten_${S.year()}.csv`, U.csvRows(rows), 'text/csv');
-    UP.app.toast('ok', 'Urlaubskonten als CSV gespeichert.');
+    if (await U.download(`Urlaubskonten_${S.year()}.csv`, U.csvRows(rows), 'text/csv'))
+      UP.app.toast('ok', 'Urlaubskonten als CSV gespeichert.');
   }
 
-  function exportAbsences() {
+  async function exportAbsences() {
     const yd = S.currentYear();
     const rows = [['Person', 'Abteilung', 'Art', 'Status', 'Von', 'Bis', 'Arbeitstage', 'Halber erster Tag', 'Halber letzter Tag', 'Notiz']];
     const sorted = yd.absences.slice().sort((a, b) => a.start.localeCompare(b.start));
@@ -280,8 +280,8 @@ UP.views.statistik = (function () {
         U.fmt(a.start), U.fmt(a.end), U.num(S.workdaysOf(a)),
         a.halfStart ? 'ja' : '', a.halfEnd ? 'ja' : '', a.note || '']);
     }
-    U.download(`Abwesenheiten_${S.year()}.csv`, U.csvRows(rows), 'text/csv');
-    UP.app.toast('ok', `${sorted.length} Einträge als CSV gespeichert.`);
+    if (await U.download(`Abwesenheiten_${S.year()}.csv`, U.csvRows(rows), 'text/csv'))
+      UP.app.toast('ok', `${sorted.length} Einträge als CSV gespeichert.`);
   }
 
   return { toolbar, render, exportQuota, exportAbsences };

@@ -222,13 +222,51 @@ UP.util = (function () {
   }
 
   /* ── Datei-Download ─────────────────────────────────────────────────── */
-  function download(filename, content, mime = 'application/octet-stream') {
+  /**
+   * Speichert Inhalte als Datei.
+   *
+   * Im normalen Browser geschieht das über einen unsichtbaren Link. Läuft der
+   * Planer als veröffentlichte Seite auf claude.ai, ist dieser Weg gesperrt –
+   * dort fragt die Umgebung den Betrachter und übernimmt das Speichern.
+   *
+   * @returns {Promise<boolean>} false, wenn nichts gespeichert wurde
+   */
+  async function download(filename, content, mime = 'application/octet-stream') {
+    const host = await (window.claude?.use?.('downloads') ?? Promise.resolve(null))
+      .catch(() => null);
+
+    if (host) {
+      try {
+        await host.save({ filename, data: content });
+        return true;
+      } catch (err) {
+        const code = err && err.code;
+        if (code === 'declined') return false;
+        // Manche Dateiendungen sind dort nicht zugelassen – dann mit .txt
+        // anhängen, der Inhalt bleibt derselbe.
+        if (code === 'rejected_extension' || code === 'extension_not_enabled') {
+          try {
+            await host.save({ filename: `${filename}.txt`, data: content });
+            window.UP?.app?.toast('info',
+              `Gespeichert als „${filename}.txt“ – zum Benutzen die Endung .txt entfernen.`,
+              { duration: 9000 });
+            return true;
+          } catch (again) {
+            if (again && again.code === 'declined') return false;
+          }
+        }
+        window.UP?.app?.toast('danger', `Speichern nicht möglich: ${err && err.message || 'unbekannter Fehler'}`);
+        return false;
+      }
+    }
+
     const blob = new Blob([content], { type: mime + ';charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url; a.download = filename;
     document.body.appendChild(a); a.click();
     setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 400);
+    return true;
   }
 
   /** CSV-Feld für Excel (Semikolon-getrennt, deutsche Konvention) */

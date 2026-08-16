@@ -29,8 +29,16 @@ UP.app = (function () {
     wireKeyboard();
 
     S.on('change', () => render());
-    S.on('storage-error', () =>
-      toast('danger', 'Speichern nicht möglich – der Browser-Speicher ist voll oder gesperrt.'));
+    // Nur einmal warnen – sonst stapeln sich die Meldungen bei jeder Änderung.
+    let storageWarned = false;
+    S.on('storage-error', () => {
+      if (storageWarned) return;
+      storageWarned = true;
+      toast('danger',
+        'Dieser Browser lässt kein Speichern zu. Die Eingaben gelten nur, solange die Seite offen ist – ' +
+        'sichere sie über das Menü als Datei.',
+        { duration: 12000, action: { label: 'Sicherung speichern', fn: exportBackup } });
+    });
 
     render();
 
@@ -1425,10 +1433,10 @@ UP.app = (function () {
   }
 
   /* ═══ Import / Export ═══════════════════════════════════════════════ */
-  function exportBackup() {
+  async function exportBackup() {
     const stamp = new Date().toISOString().slice(0, 10);
-    U.download(`Urlaubsplaner_Sicherung_${stamp}.json`, S.exportJSON(), 'application/json');
-    toast('ok', `Sicherung gespeichert – ${U.plural(S.listYears().length, 'Jahr', 'Jahre')} enthalten.`);
+    if (await U.download(`Urlaubsplaner_Sicherung_${stamp}.json`, S.exportJSON(), 'application/json'))
+      toast('ok', `Sicherung gespeichert – ${U.plural(S.listYears().length, 'Jahr', 'Jahre')} enthalten.`);
   }
 
   function importBackup() {
@@ -1469,7 +1477,7 @@ UP.app = (function () {
     input.click();
   }
 
-  function exportICS() {
+  async function exportICS() {
     const yd = S.currentYear();
     const stamp = new Date().toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
     const lines = [
@@ -1512,8 +1520,8 @@ UP.app = (function () {
       out.push(cur);
       return out.join('\r\n');
     };
-    U.download(`Abwesenheiten_${S.year()}.ics`, lines.map(fold).join('\r\n'), 'text/calendar');
-    toast('ok', 'Kalenderdatei erstellt – lässt sich in Outlook oder Google Kalender einlesen.');
+    if (await U.download(`Abwesenheiten_${S.year()}.ics`, lines.map(fold).join('\r\n'), 'text/calendar'))
+      toast('ok', 'Kalenderdatei erstellt – lässt sich in Outlook oder Google Kalender einlesen.');
   }
 
   /* ═══ Hilfe ═════════════════════════════════════════════════════════ */
