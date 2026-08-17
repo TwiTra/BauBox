@@ -1643,14 +1643,16 @@ UP.app = (function () {
       if (a.status === 'abgelehnt') continue;
       const p = S.personById(a.personId);
       if (!p) continue;
-      const d = S.deptById(p.deptId);
+      // Eine Person kann mehreren Abteilungen angehören – alle nennen.
+      const depts = (p.deptIds || []).map(id => S.deptById(id)?.name).filter(Boolean);
       lines.push('BEGIN:VEVENT',
         `UID:${a.id}@urlaubsplaner`,
         `DTSTAMP:${stamp}`,
         `DTSTART;VALUE=DATE:${a.start.replace(/-/g, '')}`,
         `DTEND;VALUE=DATE:${U.addISO(a.end, 1).replace(/-/g, '')}`,
         `SUMMARY:${enc(`${p.name} – ${S.TYPES[a.type].label}`)}`,
-        `DESCRIPTION:${enc([d ? `Abteilung: ${d.name}` : '', `Status: ${S.STATUS[a.status].label}`,
+        `DESCRIPTION:${enc([depts.length ? `${depts.length > 1 ? 'Abteilungen' : 'Abteilung'}: ${depts.join(', ')}` : '',
+          `Status: ${S.STATUS[a.status].label}`,
           `Arbeitstage: ${U.num(S.workdaysOf(a))}`, a.note].filter(Boolean).join('\n'))}`,
         'TRANSP:TRANSPARENT',
         a.status === 'beantragt' ? 'STATUS:TENTATIVE' : 'STATUS:CONFIRMED',
