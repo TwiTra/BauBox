@@ -229,12 +229,50 @@ liegen, und der Planer führt zusammen, statt zu überschreiben.
 
 | Meldung | Ursache und Abhilfe |
 |---|---|
-| „Google akzeptiert die Adresse … noch nicht“ | Die Adresse fehlt unter **Autorisierte JavaScript-Quellen**. Exakt eintragen – ohne Schrägstrich am Ende. Änderungen brauchen dort manchmal ein paar Minuten. |
+| **„Zugriff blockiert: Autorisierungsfehler“ / „Fehler 400: origin_mismatch“** | Der häufigste Fall. Die Adresse fehlt unter **Autorisierte JavaScript-Quellen**, oder sie steht nicht exakt so da. Siehe eigener Abschnitt unten. |
 | „Die Freigabe wurde abgelehnt“ | Dein Konto steht nicht als Testnutzer auf dem Zustimmungsbildschirm, oder du hast im Google-Fenster auf „Abbrechen“ geklickt. |
 | „Die Client-ID ist unbekannt“ | Tippfehler beim Kopieren, oder die Kennung stammt aus einem anderen Projekt. |
 | „Das Anmeldefenster wurde blockiert“ | Der Browser hat das Pop-up unterdrückt. Pop-ups für diese Seite erlauben. |
 | Status bleibt auf „Anmelden“ | Die Google-Sitzung ist abgelaufen. Auf die Statusanzeige klicken. Passiert das alle paar Tage, ist das Projekt noch im Testmodus – siehe Schritt 5. |
 | Datei taucht im Drive nicht auf | Suche nach `Urlaubsplaner.json`. Der Planer legt sie erst an, sobald er das erste Mal etwas speichert. |
+
+### „origin_mismatch“ im Einzelnen
+
+Google vergleicht die Adresse, von der die Anfrage kommt, buchstabengenau mit
+den eingetragenen Quellen. Schon eine Kleinigkeit reicht zum Fehlschlag. Der
+Reihe nach prüfen:
+
+1. **Welche Adresse steht in der Adresszeile des Browsers?** `localhost:8000`
+   und `127.0.0.1:8000` sind für Google **zwei verschiedene** Quellen. Trage
+   im Zweifel beide ein:
+
+   ```
+   http://localhost:8000
+   http://127.0.0.1:8000
+   ```
+
+2. **Stimmt der Port?** Ist 8000 belegt, weicht `start.py` auf 8001, 8002 …
+   aus. Der tatsächliche Port steht im Konsolenfenster und in der Adresszeile.
+   Der Einrichtungsdialog im Planer zeigt in Schritt 4 immer die Adresse an,
+   die gerade gilt – die ist maßgeblich.
+
+3. **Kein Schrägstrich am Ende**, kein Pfad. Richtig ist
+   `http://localhost:8000`, falsch sind `http://localhost:8000/` und
+   `http://localhost:8000/index.html`.
+
+4. **Wurde gespeichert?** Nach dem Eintragen unten auf **Speichern**. Ohne das
+   ist nichts übernommen.
+
+5. **Der richtige Client?** Die Quelle gehört zu dem Client, dessen Client-ID
+   im Planer steht – nicht zu einem zweiten, versehentlich angelegten.
+
+6. **Kurz warten.** Google übernimmt Änderungen meist in Sekunden, laut
+   eigener Dokumentation können es aber einige Minuten werden. Danach im
+   Planer erneut auf „Verbinden“.
+
+Was Google tatsächlich empfangen hat, verrät der Link **Fehlerdetails** auf der
+Fehlerseite: Dort steht die Quelle, die abgelehnt wurde. Diese Zeichenfolge
+gehört – genau so – in die Cloud Console.
 
 ## Grenzen
 

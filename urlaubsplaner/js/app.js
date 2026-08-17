@@ -317,11 +317,21 @@ UP.app = (function () {
     if (err.blocked === 'sandbox') return 'Diese Ansicht darf keine fremden Server aufrufen. Starte den Planer auf dem PC mit „python start.py“ – dort funktioniert es.';
     if (err.blocked === 'file') return 'Die Seite ist als Datei geöffnet. Starte sie mit „python start.py“, damit sie eine Adresse hat.';
     if (/nicht erreichbar/i.test(d)) return 'Die Google-Anmeldung konnte nicht geladen werden. Besteht eine Internetverbindung, und blockt ein Werbefilter womöglich accounts.google.com?';
-    if (/popup/i.test(d)) return 'Das Anmeldefenster wurde blockiert. Erlaube Pop-ups für diese Seite und versuche es erneut.';
-    if (/redirect_uri|origin/i.test(d)) return `Google akzeptiert die Adresse ${location.origin} noch nicht. Trage sie in der Cloud Console unter „Autorisierte JavaScript-Quellen“ ein.`;
-    if (/access_denied/i.test(d)) return 'Die Freigabe wurde abgelehnt – oder dein Konto steht noch nicht als Testnutzer auf dem Zustimmungsbildschirm.';
-    if (/invalid_client/i.test(d)) return 'Die Client-ID ist unbekannt. Stimmt sie genau mit der aus der Cloud Console überein?';
+    if (/redirect_uri|origin_mismatch/i.test(d)) return originHint();
+    if (/popup_failed|popup_blocked/i.test(d)) return 'Das Anmeldefenster wurde vom Browser blockiert. Erlaube Pop-ups für diese Seite und versuche es erneut.';
+    // Das Fenster wurde geschlossen – meistens, weil darin eine Google-Meldung stand.
+    if (/popup_closed|popup/i.test(d)) return `Das Anmeldefenster wurde geschlossen. Stand darin „Zugriff blockiert“? ${originHint()}`;
+    if (/access_denied/i.test(d)) return 'Die Freigabe wurde abgelehnt – oder dein Konto steht noch nicht als Testnutzer unter „Zielgruppe“ in der Google Cloud Console.';
+    if (/invalid_client/i.test(d)) return 'Die Client-ID ist unbekannt. Stimmt sie genau mit der aus der Cloud Console überein, und ist dort das richtige Projekt ausgewählt?';
     return d || 'Unbekannter Fehler.';
+  }
+
+  /** Der mit Abstand häufigste Stolperstein: die Adresse fehlt bei Google. */
+  function originHint() {
+    return 'Dann fehlt bei Google die Adresse, unter der der Planer läuft. ' +
+      `Trage in der Cloud Console unter „Google Auth-Plattform → Clients“ beim vorhandenen Client bei ` +
+      `„Autorisierte JavaScript-Quellen“ genau dies ein: ${location.origin} — ohne Schrägstrich am Ende, ` +
+      'danach speichern. Es kann ein paar Minuten dauern, bis Google die Änderung übernimmt.';
   }
 
   /* ═══ Dialog: Speicherort und Fassungen ═════════════════════════════ */
