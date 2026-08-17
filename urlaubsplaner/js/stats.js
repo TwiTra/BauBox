@@ -106,17 +106,15 @@ UP.views.statistik = (function () {
   function deptChart() {
     const yd = S.currentYear();
     const rows = [];
-    const groups = yd.departments.slice();
-
-    for (const d of groups) {
-      const people = S.peopleOf(d.id, yd);
+    for (const { dept: d, depth } of S.deptList(yd)) {
+      const people = S.peopleUnder(d.id, yd);
       if (!people.length) continue;
       const qs = people.map(p => S.quota(p.id));
       const planned = qs.reduce((n, q) => n + q.planned, 0);
       const total = qs.reduce((n, q) => n + q.total, 0);
-      rows.push({ name: d.name, color: d.color, planned, total, pct: total ? planned / total : 0, n: people.length });
+      rows.push({ name: d.name, color: d.color, depth,
+                  planned, total, pct: total ? planned / total : 0, n: people.length });
     }
-    rows.sort((a, b) => b.pct - a.pct);
 
     return el('div.card', {},
       el('div.card-head', {},
@@ -125,7 +123,11 @@ UP.views.statistik = (function () {
       el('div.card-body', {},
         rows.length ? el('div.barlist', {}, rows.map(r =>
           el('div.barlist-row', {},
-            el('div.barlist-label', { title: `${r.name} · ${U.plural(r.n, 'Person', 'Personen')}` },
+            el('div.barlist-label', {
+              title: `${r.name} · ${U.plural(r.n, 'Person', 'Personen')}` +
+                (r.depth ? ' (Unterkategorie)' : ''),
+              style: { paddingLeft: (r.depth * 13) + 'px' },
+            },
               el('span.dot', { style: { background: r.color } }),
               el('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis' }, text: r.name })),
             el('div.barlist-track', {},
@@ -142,8 +144,12 @@ UP.views.statistik = (function () {
     const yd = S.currentYear();
     const rows = yd.people.map(p => {
       const q = S.quota(p.id);
-      const d = S.deptById(p.deptId);
-      return { p, q, dept: d ? d.name : 'Ohne Abteilung', deptColor: d ? d.color : '#8d97ab' };
+      const ds = (p.deptIds || []).map(x => S.deptById(x)).filter(Boolean);
+      return {
+        p, q,
+        dept: ds.length ? ds.map(d => d.name).join(', ') : 'Ohne Abteilung',
+        deptColor: ds.length ? ds[0].color : '#8d97ab',
+      };
     });
 
     const cmp = {
@@ -260,8 +266,8 @@ UP.views.statistik = (function () {
     const rows = [['Person', 'Abteilung', 'Rolle', 'Anspruch', 'Übertrag', 'Verfügbar', 'Genehmigt', 'Beantragt', 'Rest', 'Sonstige Abwesenheit']];
     for (const p of yd.people) {
       const q = S.quota(p.id);
-      const d = S.deptById(p.deptId);
-      rows.push([p.name, d ? d.name : '', p.role || '', U.num(q.entitlement), U.num(q.carryover),
+      const names = (p.deptIds || []).map(x => S.deptById(x)?.name).filter(Boolean).join(' | ');
+      rows.push([p.name, names, p.role || '', U.num(q.entitlement), U.num(q.carryover),
         U.num(q.total), U.num(q.approved), U.num(q.pending), U.num(q.remaining), U.num(q.other)]);
     }
     if (await U.download(`Urlaubskonten_${S.year()}.csv`, U.csvRows(rows), 'text/csv'))
@@ -275,8 +281,8 @@ UP.views.statistik = (function () {
     for (const a of sorted) {
       const p = S.personById(a.personId);
       if (!p) continue;
-      const d = S.deptById(p.deptId);
-      rows.push([p.name, d ? d.name : '', S.TYPES[a.type].label, S.STATUS[a.status].label,
+      const names = (p.deptIds || []).map(x => S.deptById(x)?.name).filter(Boolean).join(' | ');
+      rows.push([p.name, names, S.TYPES[a.type].label, S.STATUS[a.status].label,
         U.fmt(a.start), U.fmt(a.end), U.num(S.workdaysOf(a)),
         a.halfStart ? 'ja' : '', a.halfEnd ? 'ja' : '', a.note || '']);
     }

@@ -76,6 +76,12 @@ höchstens gleichzeitig fehlen*. Daraus ergibt sich die zentrale Auswertung:
 - **Reiter „Überschneidungen“** listet alle kritischen Zeiträume nach Schwere
   sortiert, mit Datum, Anzahl Arbeitstagen und den beteiligten Personen. Ein
   Klick springt in die Jahresansicht an die Stelle.
+- **Über alle Ebenen gerechnet**: Wer in einer Unterkategorie fehlt, fehlt auch
+  in der übergeordneten Abteilung. *Getränke* darf einen Ausfall vertragen und
+  *Spirituosen* auch – wenn aber für ganz *Food* höchstens vier gleichzeitig
+  fehlen dürfen, meldet *Food* die Überschneidung selbst dann, wenn jede
+  Unterkategorie für sich im grünen Bereich liegt. Wer in zwei Unterkategorien
+  geführt wird, zählt oben trotzdem nur einmal.
 - **Wochen-Heatmap** über das ganze Jahr, eine Zeile je Abteilung.
 - **Engpasstage**: Zeiträume genau an der Grenze – hier passt kein weiterer
   Urlaub mehr rein.
@@ -87,9 +93,20 @@ höchstens gleichzeitig fehlen*. Daraus ergibt sich die zentrale Auswertung:
 ### Abteilungen und Personen
 
 - Abteilungen anlegen, benennen, einfärben und den Grenzwert festlegen.
+- **Unterkategorien**: Eine Abteilung kann einer anderen untergeordnet werden.
+  *Food* fasst zum Beispiel *Getränke*, *Drogerie*, *Spirituosen* und
+  *Trockensortiment* zusammen. Jede Ebene hat ihren eigenen Grenzwert – die
+  Unterkategorie regelt den Warenbereich, die übergeordnete Abteilung den
+  gesamten Bereich.
+- **Mehrfachzuordnung**: Wer in zwei Bereichen arbeitet, wird beiden zugeordnet
+  und erscheint in beiden – im Personendialog per Häkchen, oder beim Ziehen mit
+  gedrückter **Strg**-Taste (kopieren statt verschieben). Ein `+1` am Namen
+  zeigt, dass die Person noch woanders geführt wird.
 - **Drag & Drop**: Personenkarten in der Team-Ansicht zwischen Abteilungen
   ziehen, inklusive Position innerhalb der Spalte. In der Jahresansicht geht
   das genauso – den Namen links anfassen und auf eine andere Abteilung ziehen.
+  Zieht man an den Rand, rollt die Ansicht mit, sodass auch weiter unten
+  liegende Abteilungen erreichbar sind.
 - Spalten selbst lassen sich per Kopfzeile umsortieren.
 - Personen ohne Abteilung landen in einer eigenen Spalte und gehen nicht
   verloren.

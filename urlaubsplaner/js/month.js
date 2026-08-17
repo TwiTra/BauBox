@@ -97,46 +97,53 @@ UP.views.monat = (function () {
         .filter(Boolean).join(' ');
     }
 
-    /* Gruppen */
-    const groups = yd.departments.map(d => ({ dept: d, people: S.peopleOf(d.id, yd) }));
-    const orphans = S.peopleOf(null, yd);
-    if (orphans.length) groups.push({ dept: null, people: orphans });
-
+    /* Gruppen als Baum, Unterkategorien eingerückt */
     const body = el('div');
-    for (const g of groups) {
-      const id = g.dept ? g.dept.id : '__none__';
-      const max = g.dept ? g.dept.maxAbsent : S.settings.defaultMaxAbsent;
-      const arr = occ.byDept[id] || [];
 
-      body.appendChild(el('div.mv-deptbar', {},
-        el('div.mv-name', {},
-          el('span.dot', { style: { background: g.dept ? g.dept.color : '#8d97ab' } }),
-          el('span.pname', { text: g.dept ? g.dept.name : 'Ohne Abteilung' }),
-          el('span', { style: { marginLeft: 'auto', fontSize: '10.5px', color: 'var(--faint)' } }, `max ${max}`)),
+    const renderGroup = (dept, depth) => {
+      const id = dept ? dept.id : '__none__';
+      const max = dept ? dept.maxAbsent : S.settings.defaultMaxAbsent;
+      const arr = occ.byDept[id] || [];
+      const direct = S.peopleOf(dept ? dept.id : null, yd);
+      const under = dept ? S.peopleUnder(dept.id, yd) : direct;
+      const kids = dept ? S.childrenOf(dept.id, yd) : [];
+
+      body.appendChild(el('div.mv-deptbar', { class: kids.length ? 'is-parent' : '' },
+        el('div.mv-name', { style: { paddingLeft: (10 + depth * 14) + 'px' } },
+          el('span.dot', { style: { background: dept ? dept.color : '#8d97ab' } }),
+          el('span.pname', { class: kids.length ? 'is-parent' : '', text: dept ? dept.name : 'Ohne Abteilung' }),
+          el('span', { style: { marginLeft: 'auto', fontSize: '10.5px', color: 'var(--faint)' } },
+            `${under.length} · max ${max}`)),
         ...days.map(d => {
           const v = arr[d.i] || 0;
           const c = !d.workday ? '' : v > max ? 'd' : v === max ? 'w' : v > 0 ? 'has' : '';
           return el('div.mv-loadcell', {
             class: c, style: { width: CELL + 'px' },
-            title: v ? `${U.fmtLong(d.iso)}: ${U.plural(v, 'Person', 'Personen')} abwesend (erlaubt: ${max})` : '',
+            title: v ? `${dept ? dept.name : 'Ohne Abteilung'} · ${U.fmtLong(d.iso)}: ` +
+              `${U.plural(v, 'Person', 'Personen')} abwesend (erlaubt: ${max})` : '',
             onclick: v ? () => UP.app.showDayDetail(d.i, id) : null,
           }, v ? String(v) : '');
         })
       ));
 
-      for (const p of g.people) {
-        body.appendChild(personRow(p, days, term, gridW));
-      }
-    }
+      for (const p of direct) body.appendChild(personRow(p, days, term, gridW, depth, dept));
+      for (const k of kids) renderGroup(k, depth + 1);
+    };
+
+    S.childrenOf(null, yd).forEach(d => renderGroup(d, 0));
+    if (S.peopleOf(null, yd).length) renderGroup(null, 0);
+
     grid.appendChild(body);
     scroll.appendChild(grid);
     root.appendChild(scroll);
     host.appendChild(root);
   }
 
-  function personRow(p, days, term, gridW) {
+  function personRow(p, days, term, gridW, depth = 0, dept = null) {
     const dim = term && !p.name.toLowerCase().includes(term);
     const q = S.quota(p.id);
+    const alsoIn = (p.deptIds || []).filter(x => x !== (dept && dept.id))
+      .map(x => S.deptById(x)?.name).filter(Boolean);
 
     const track = el('div.mv-track', { dataset: { person: p.id } });
     const marks = S.absencesOf(p.id);
@@ -170,12 +177,14 @@ UP.views.monat = (function () {
 
     const row = el('div.mv-row', { class: dim ? 'dimmed' : '', style: dim ? { opacity: .3 } : null },
       el('div.mv-name', {
-        title: `${p.name}${p.role ? ' · ' + p.role : ''} – Rest ${U.num(q.remaining)} Tage`,
+        title: `${p.name}${p.role ? ' · ' + p.role : ''} – Rest ${U.num(q.remaining)} Tage` +
+          (alsoIn.length ? `\nAuch in: ${alsoIn.join(', ')}` : ''),
         onclick: () => UP.app.openPerson(p.id),
-        style: { cursor: 'pointer' },
+        style: { cursor: 'pointer', paddingLeft: (20 + depth * 14) + 'px' },
       },
         el('span.avatar.sm', { style: { background: p.color || U.colorOf(p.name) } }, U.initials(p.name)),
         el('span.pname', { text: p.name }),
+        alsoIn.length ? el('span.multi-badge', { title: `Auch in: ${alsoIn.join(', ')}` }, `+${alsoIn.length}`) : null,
         el('span', { style: { marginLeft: 'auto', fontSize: '10.5px', fontWeight: '650', color: q.remaining < 0 ? 'var(--danger)' : 'var(--faint)' } }, U.num(q.remaining))),
       track);
 

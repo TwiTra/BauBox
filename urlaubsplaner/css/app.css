@@ -410,6 +410,15 @@ select.tb-select:focus, input.tb-input:focus { border-color: var(--primary); box
 .avatar.lg { width: 40px; height: 40px; border-radius: 12px; font-size: 14px; }
 
 .dot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; display: inline-block; }
+
+/* Kennzeichnet Personen, die noch weiteren Abteilungen zugeordnet sind */
+.multi-badge {
+  flex: 0 0 auto; margin-left: 5px;
+  padding: 0 5px; height: 15px; line-height: 15px;
+  border-radius: 5px;
+  background: var(--primary-soft); color: var(--primary);
+  font-size: 9.5px; font-weight: 800; letter-spacing: .2px;
+}
 .tag {
   display: inline-flex; align-items: center; gap: 5px;
   height: 21px; padding: 0 8px; border-radius: 6px;
@@ -526,6 +535,12 @@ select.tb-select:focus, input.tb-input:focus { border-color: var(--primary); box
 .tl-deptname .caret:hover { background: var(--surface-3); color: var(--ink); }
 .tl-dept.collapsed .caret { transform: rotate(-90deg); }
 .tl-deptname .dname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Übergeordnete Abteilungen heben sich von ihren Unterkategorien ab */
+.tl-deptbar.is-parent { background: var(--surface-3); }
+.tl-deptbar.is-parent .tl-deptname { background: var(--surface-3); }
+.tl-deptname .dname.is-parent { font-weight: 750; letter-spacing: -.1px; }
+.mv-deptbar.is-parent, .mv-deptbar.is-parent .mv-name { background: var(--surface-3); }
+.mv-name .pname.is-parent { font-weight: 750; }
 .tl-deptname .cnt { margin-left: auto; font-size: 11px; font-weight: 600; color: var(--faint); font-variant-numeric: tabular-nums; }
 .tl-dept.drop-target .tl-deptname { background: var(--primary-soft); box-shadow: inset 3px 0 0 var(--primary); }
 
@@ -756,7 +771,34 @@ select.tb-select:focus, input.tb-input:focus { border-color: var(--primary); box
 
 /* ═══ Team-Board ══════════════════════════════════════════════════════ */
 .board { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 18px; }
-.board-cols { display: flex; gap: 14px; align-items: flex-start; min-height: 100%; padding-bottom: 20px; }
+.board-cols { display: flex; gap: 14px; align-items: flex-start; padding-bottom: 4px; }
+
+/* Abteilung mit Unterkategorien: Überschrift, darunter die Unterspalten */
+.bgroup {
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--surface-2) 60%, transparent);
+  padding: 12px;
+  margin-bottom: 14px;
+  width: max-content; min-width: 100%;
+}
+.bgroup-head {
+  display: flex; align-items: center; gap: 9px;
+  margin-bottom: 11px;
+}
+.bgroup-head .cbar { width: 4px; height: 22px; border-radius: 3px; flex: 0 0 auto; }
+.bgroup-name { font-size: 15px; font-weight: 700; letter-spacing: -.2px; }
+.bgroup .bcol { background: var(--surface); }
+
+/* Ziehen mit gedrückter Strg-Taste ordnet zusätzlich zu, statt zu verschieben */
+.drag-proxy.is-copy { box-shadow: var(--shadow-3), 0 0 0 2px var(--ok); }
+.drag-proxy.is-copy::after {
+  content: "+ zusätzlich";
+  position: absolute; right: 6px; bottom: -9px;
+  padding: 1px 6px; border-radius: 5px;
+  background: var(--ok); color: #fff;
+  font-size: 9.5px; font-weight: 800;
+}
 .bcol {
   width: 288px; flex: 0 0 288px;
   background: var(--surface); border: 1px solid var(--border);
@@ -931,6 +973,23 @@ input[type=checkbox], input[type=radio] { width: auto; height: auto; accent-colo
 
 .check { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; user-select: none; }
 .check input { margin: 0; }
+
+/* Mehrfachauswahl der Abteilungen im Personendialog */
+.deptpick {
+  display: flex; flex-direction: column; gap: 4px;
+  max-height: 208px; overflow-y: auto;
+  padding: 7px; border: 1px solid var(--border); border-radius: var(--r);
+  background: var(--surface-2);
+}
+.deptopt {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 8px; border-radius: 7px;
+  font-size: 13px; cursor: pointer; user-select: none;
+  transition: background .1s;
+}
+.deptopt:hover { background: var(--surface-3); }
+.deptopt.active { background: var(--primary-soft); color: var(--primary); font-weight: 600; }
+.deptopt input { margin: 0; flex: 0 0 auto; }
 
 .chipgrid { display: flex; flex-wrap: wrap; gap: 7px; }
 .chipopt {

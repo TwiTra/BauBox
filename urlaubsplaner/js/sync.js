@@ -52,7 +52,21 @@ UP.sync = (function () {
     emit();
   }
 
-  const ser = o => JSON.stringify(o);
+  /**
+   * Vergleichsform eines Datenstands. Die Reihenfolge der Felder wird dabei
+   * vereinheitlicht: Ein Gerät, das den Plan neu anlegt, schreibt die Felder in
+   * einer anderen Reihenfolge als ein Gerät, das ihn geladen hat. Ohne dieses
+   * Sortieren gälte jeder Eintrag als „hier geändert“, und die Zusammenführung
+   * würde Änderungen des anderen Geräts stillschweigend verwerfen.
+   */
+  function ser(o) {
+    return JSON.stringify(o, (k, v) => {
+      if (v && typeof v === 'object' && !Array.isArray(v)) {
+        return Object.keys(v).sort().reduce((acc, key) => { acc[key] = v[key]; return acc; }, {});
+      }
+      return v;
+    });
+  }
   const sleep = ms => new Promise(r => setTimeout(r, ms));
 
   /* Hochladen und Herunterladen dürfen sich nicht überlappen: beide lesen und

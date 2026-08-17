@@ -1014,22 +1014,27 @@ UP.app = (function () {
             el('div.k-label', {}, t.quota ? 'Rest danach' : 'Urlaubskonto'),
             el('div.k-value', { style: { fontSize: '21px' } }, t.quota ? U.num(Math.round(restAfter * 2) / 2) : '±0'))),
 
-        impact.over
-          ? el('div.note-box.danger', {},
-            el('span.ico', { html: U.icon('alert', 16) }),
-            el('div', {},
-              el('div', { style: { fontWeight: '700', marginBottom: '3px' } },
-                `Überschneidung in „${impact.deptName}“`),
-              el('div', {}, `An ${U.plural(impact.days.length, 'Arbeitstag', 'Arbeitstagen')} wären bis zu ` +
-                `${impact.worst} Personen gleichzeitig abwesend – erlaubt sind ${impact.max}.`),
-              el('div', { style: { marginTop: '5px' } },
-                'Betroffen: ' + [...new Set(impact.days.flatMap(d => d.others.map(o => o.name)))].join(', ')),
-              el('div', { style: { marginTop: '5px', opacity: .85 } },
-                `Zuerst betroffen: ${U.fmt(impact.days[0].iso)}`)))
-          : el('div.note-box.ok', {},
+        // Eine Person kann mehreren Abteilungen angehören – jede hat ihren
+        // eigenen Grenzwert und wird einzeln geprüft.
+        ...(impact.over
+          ? impact.groups.filter(g => g.over).map(g =>
+            el('div.note-box.danger', { style: { marginBottom: '8px' } },
+              el('span.ico', { html: U.icon('alert', 16) }),
+              el('div', {},
+                el('div', { style: { fontWeight: '700', marginBottom: '3px' } },
+                  `Überschneidung in „${g.deptName}“`),
+                el('div', {}, `An ${U.plural(g.days.length, 'Arbeitstag', 'Arbeitstagen')} wären bis zu ` +
+                  `${g.worst} Personen gleichzeitig abwesend – erlaubt sind ${g.max}.`),
+                el('div', { style: { marginTop: '5px' } },
+                  'Betroffen: ' + [...new Set(g.days.flatMap(x => x.others.map(o => o.name)))].join(', ')),
+                el('div', { style: { marginTop: '5px', opacity: .85 } },
+                  `Zuerst betroffen: ${U.fmt(g.days[0].iso)}`))))
+          : [el('div.note-box.ok', {},
             el('span.ico', { html: U.icon('check', 16) }),
-            el('div', {}, `Passt: In „${impact.deptName}“ bleibt die Grenze von ${impact.max} gleichzeitig ` +
-              'Abwesenden eingehalten.')),
+            el('div', {}, impact.groups.length > 1
+              ? `Passt: In allen ${impact.groups.length} Abteilungen dieser Person bleiben die Grenzwerte eingehalten.`
+              : `Passt: In „${impact.groups[0].deptName}“ bleibt die Grenze von ` +
+                `${impact.groups[0].max} gleichzeitig Abwesenden eingehalten.`))]),
 
         t.quota && restAfter < 0
           ? el('div.note-box.warn', { style: { marginTop: '10px' } },
@@ -1091,7 +1096,11 @@ UP.app = (function () {
     const impact = S.previewImpact(a.personId, a.start, a.end, { ignoreAbsenceId: a.id });
     const base = `${p ? p.name : 'Eintrag'}: ${S.TYPES[a.type].label} ${U.fmtRange(a.start, a.end)} · ${U.plural(days, 'Arbeitstag', 'Arbeitstage')} ${verb}`;
     if (impact.over) {
-      toast('warn', `${base} – Achtung: ${impact.worst} gleichzeitig abwesend, erlaubt sind ${impact.max}.`, {
+      const worst = impact.groups.filter(g => g.over);
+      const g = worst[0];
+      const more = worst.length > 1 ? ` (und ${worst.length - 1} weitere)` : '';
+      toast('warn', `${base} – Achtung: in „${g.deptName}“${more} wären ${g.worst} gleichzeitig ` +
+        `abwesend, erlaubt sind ${g.max}.`, {
         action: { label: 'Rückgängig', fn: doUndo }, duration: 8000,
       });
     } else {
@@ -1107,12 +1116,35 @@ UP.app = (function () {
     if (id && !p) return;
 
     const nameInp = el('input', { type: 'text', value: p?.name || '', placeholder: 'Vor- und Nachname' });
-    const roleInp = el('input', { type: 'text', value: p?.role || '', placeholder: 'z. B. Polier, Buchhaltung' });
-    const deptSel = el('select', {},
-      el('option', { value: '' }, 'Ohne Abteilung'),
-      ...yd.departments.map(d => el('option', {
-        value: d.id, selected: d.id === (p ? p.deptId : presetDept),
-      }, d.name)));
+    const roleInp = el('input', { type: 'text', value: p?.role || '', placeholder: 'z. B. Warengruppe, Kasse' });
+
+    /* Mehrfachzuordnung: eine Person kann in beliebig vielen Abteilungen
+       arbeiten und erscheint dann in jeder davon. */
+    const chosen = new Set(p ? (p.deptIds || []) : (presetDept ? [presetDept] : []));
+    const deptBox = el('div.deptpick');
+    function renderDepts() {
+      deptBox.replaceChildren(...(yd.departments.length
+        ? S.deptList(yd).map(({ dept: d, depth }) => {
+          const on = chosen.has(d.id);
+          return el('label.deptopt', {
+            class: on ? 'active' : '',
+            style: { marginLeft: (depth * 18) + 'px' },
+          },
+            el('input', {
+              type: 'checkbox', checked: on,
+              onchange: e => {
+                if (e.target.checked) chosen.add(d.id); else chosen.delete(d.id);
+                renderDepts();
+              },
+            }),
+            el('span.dot', { style: { background: d.color } }),
+            el('span', { text: d.name }),
+            S.childrenOf(d.id, yd).length
+              ? el('span.small.muted', { text: '(übergeordnet)' }) : null);
+        })
+        : [el('div.small.muted', {}, 'Noch keine Abteilungen angelegt.')]));
+    }
+    renderDepts();
     const entInp = el('input', { type: 'number', min: 0, max: 200, step: 0.5, value: p?.entitlement ?? S.settings.defaultEntitlement });
     const carryInp = el('input', { type: 'number', min: -50, max: 100, step: 0.5, value: p?.carryover ?? 0 });
 
@@ -1137,9 +1169,13 @@ UP.app = (function () {
       sub: `Jahr ${S.year()}`,
       body: el('div', {},
         el('div.field', {}, el('label', {}, 'Name'), nameInp),
-        el('div.field-row', {},
-          el('div.field', {}, el('label', {}, 'Rolle / Funktion'), roleInp),
-          el('div.field', {}, el('label', {}, 'Abteilung'), deptSel)),
+        el('div.field', {}, el('label', {}, 'Rolle / Funktion'), roleInp),
+        el('div.field', {},
+          el('div.field-label', {}, 'Abteilungen'), deptBox,
+          el('div.hint', {}, 'Mehrfachauswahl möglich. Die Person erscheint dann in jeder ' +
+            'ausgewählten Abteilung – praktisch, wenn jemand in zwei Bereichen arbeitet. ' +
+            'Bei der Überschneidungs-Prüfung wird sie je Abteilung gezählt, in einer ' +
+            'übergeordneten Abteilung aber nur einmal.')),
         el('div.field-row', {},
           el('div.field', {}, el('label', {}, 'Urlaubsanspruch (Tage)'), entInp),
           el('div.field', {}, el('label', {}, 'Übertrag aus Vorjahr'), carryInp)),
@@ -1167,13 +1203,17 @@ UP.app = (function () {
             if (!name) { nameInp.focus(); return toast('warn', 'Bitte einen Namen angeben.'); }
             const patch = {
               name, role: roleInp.value.trim(),
-              deptId: deptSel.value || null,
+              deptIds: [...chosen],
               entitlement: Number(entInp.value) || 0,
               carryover: Number(carryInp.value) || 0,
               color,
             };
             if (p) { S.updatePerson(p.id, patch); toast('ok', `${name} gespeichert.`); }
-            else { S.addPerson(name, patch.deptId, patch); toast('ok', `${name} hinzugefügt.`); }
+            else {
+              S.addPerson(name, null, patch);
+              toast('ok', `${name} hinzugefügt${patch.deptIds.length > 1
+                ? ` – in ${patch.deptIds.length} Abteilungen` : ''}.`);
+            }
             m.close();
           },
         }),
@@ -1186,7 +1226,7 @@ UP.app = (function () {
     const p = S.personById(id);
     if (!p) return;
     const q = S.quota(id);
-    const d = S.deptById(p.deptId);
+    const ds = (p.deptIds || []).map(x => S.deptById(x)).filter(Boolean);
     const list = S.absencesOf(id);
     const cfIds = new Set(S.conflicts().flatMap(c => c.people.map(x => x.absence.id)));
 
@@ -1195,7 +1235,7 @@ UP.app = (function () {
         el('span.avatar.lg', { style: { background: p.color || U.colorOf(p.name) } }, U.initials(p.name)),
         el('div', {},
           el('div', { style: { fontSize: '17px', fontWeight: '700' } }, p.name),
-          el('div.small.muted', {}, [p.role, d ? d.name : 'Ohne Abteilung'].filter(Boolean).join(' · '))),
+          el('div.small.muted', {}, [p.role, ds.length ? ds.map(x => x.name).join(' · ') : 'Ohne Abteilung'].filter(Boolean).join(' · '))),
         el('div', { style: { marginLeft: 'auto', display: 'flex', gap: '6px' } },
           U.btn('soft-btn btn-sm', 'pencil', 'Bearbeiten', { onclick: () => { m.close(); editPerson(id); } }))),
 
@@ -1243,17 +1283,31 @@ UP.app = (function () {
   }
 
   /* ═══ Dialog: Abteilung ═════════════════════════════════════════════ */
-  function editDepartment(id) {
+  function editDepartment(id, presetParent = null) {
     if (!requireUnlocked()) return;
     const yd = S.currentYear();
     const d = id ? S.deptById(id) : null;
     if (id && !d) return;
 
-    const nameInp = el('input', { type: 'text', value: d?.name || '', placeholder: 'z. B. Hochbau, Verwaltung' });
+    const nameInp = el('input', { type: 'text', value: d?.name || '', placeholder: 'z. B. Getränke, Kasse' });
     const maxInp = el('input', {
       type: 'number', min: 0, max: 99, step: 1,
       value: d?.maxAbsent ?? S.settings.defaultMaxAbsent,
     });
+
+    /* Unterkategorie: übergeordnete Abteilung wählen. Ausgeschlossen sind die
+       eigene Abteilung und alles, was darunter liegt – das ergäbe einen Kreis. */
+    const parentSel = el('select', {},
+      el('option', { value: '' }, 'Keine – eigenständige Abteilung'),
+      ...S.deptList(yd)
+        .filter(({ dept: o }) => !d || S.canBeParent(d.id, o.id, yd))
+        .map(({ dept: o, depth }) => el('option', {
+          value: o.id,
+          selected: o.id === (d ? (d.parentId ?? null) : presetParent),
+        }, `${'  '.repeat(depth)}${o.name}`)));
+
+    const kids = d ? S.childrenOf(d.id, yd) : [];
+    const under = d ? S.peopleUnder(d.id, yd).length : 0;
 
     let color = d?.color || U.DEPT_COLORS[yd.departments.length % U.DEPT_COLORS.length];
     const colorRow = el('div.colorpick', {}, U.DEPT_COLORS.map(c =>
@@ -1265,22 +1319,37 @@ UP.app = (function () {
     const size = d ? S.peopleOf(d.id, yd).length : 0;
 
     const m = modal({
-      title: d ? 'Abteilung bearbeiten' : 'Abteilung anlegen',
+      title: d ? 'Abteilung bearbeiten' : (presetParent ? 'Unterkategorie anlegen' : 'Abteilung anlegen'),
       sub: `Jahr ${S.year()}`, size: 'narrow',
       body: el('div', {},
         el('div.field', {}, el('label', {}, 'Name'), nameInp),
+        el('div.field', {}, el('label', {}, 'Gehört zu'), parentSel,
+          el('div.hint', {}, 'Bleibt das leer, ist es eine eigenständige Abteilung. Sonst wird sie ' +
+            'zur Unterkategorie und ihre Personen zählen auch in der übergeordneten Abteilung mit.')),
         el('div.field', {}, el('label', {}, 'Höchstens gleichzeitig abwesend'), maxInp,
-          el('div.hint', {}, 'Wird diese Zahl an einem Arbeitstag überschritten, meldet der Planer eine Überschneidung. ' +
-            (size ? `Die Abteilung hat aktuell ${U.plural(size, 'Person', 'Personen')}.` : ''))),
-        el('div.field', {}, el('div.field-label', {}, 'Farbe'), colorRow)),
+          el('div.hint', {},
+            'Wird diese Zahl an einem Arbeitstag überschritten, meldet der Planer eine Überschneidung. ' +
+            (kids.length
+              ? `Gezählt werden alle ${under} Personen der Unterkategorien – wer in mehreren steht, nur einmal.`
+              : size ? `Die Abteilung hat aktuell ${U.plural(size, 'Person', 'Personen')}.` : ''))),
+        el('div.field', {}, el('div.field-label', {}, 'Farbe'), colorRow),
+        kids.length
+          ? el('div.note-box', {},
+            el('span.ico', { html: U.icon('info', 15) }),
+            el('div', {}, `Unterkategorien: ${kids.map(k => k.name).join(', ')}. Jede hat ihren ` +
+              'eigenen Grenzwert; dieser hier gilt zusätzlich für den gesamten Bereich.'))
+          : null),
       footer: [
         d ? U.btn('soft-btn', 'trash', 'Löschen', {
           onclick: async () => {
             if (await confirmBox({
               title: `„${d.name}“ löschen?`, danger: true, okLabel: 'Löschen',
-              text: size
-                ? `Die ${U.plural(size, 'Person', 'Personen')} dieser Abteilung bleiben erhalten und stehen danach unter „Ohne Abteilung“.`
-                : 'Die Abteilung wird entfernt.',
+              text: [
+                size ? `Die ${U.plural(size, 'Person', 'Personen')} verlieren nur diese Zuordnung; ` +
+                  'weitere Abteilungen bleiben erhalten.' : 'Die Abteilung wird entfernt.',
+                kids.length ? `Die ${U.plural(kids.length, 'Unterkategorie', 'Unterkategorien')} ` +
+                  'rücken eine Ebene nach oben und bleiben bestehen.' : '',
+              ].filter(Boolean).join(' '),
             })) { S.deleteDepartment(d.id); m.close(); toast('ok', 'Abteilung gelöscht.', { action: { label: 'Rückgängig', fn: doUndo } }); }
           },
         }) : null,
@@ -1291,9 +1360,18 @@ UP.app = (function () {
           onclick: () => {
             const name = nameInp.value.trim();
             if (!name) { nameInp.focus(); return toast('warn', 'Bitte einen Namen angeben.'); }
-            const patch = { name, color, maxAbsent: U.clamp(Number(maxInp.value) || 0, 0, 99) };
+            const patch = {
+              name, color,
+              parentId: parentSel.value || null,
+              maxAbsent: U.clamp(Number(maxInp.value) || 0, 0, 99),
+            };
             if (d) { S.updateDepartment(d.id, patch); toast('ok', 'Abteilung gespeichert.'); }
-            else { S.addDepartment(name, patch); toast('ok', `Abteilung „${name}“ angelegt.`); }
+            else {
+              S.addDepartment(name, patch);
+              const pn = patch.parentId ? S.deptById(patch.parentId)?.name : null;
+              toast('ok', pn ? `„${name}“ als Unterkategorie von „${pn}“ angelegt.`
+                : `Abteilung „${name}“ angelegt.`);
+            }
             m.close();
           },
         }),
@@ -1344,13 +1422,13 @@ UP.app = (function () {
     const yd = S.currentYear();
     const sorted = yd.people.slice().sort((a, b) => U.byName(a.name, b.name));
     const rows = sorted.map(p => {
-      const d = S.deptById(p.deptId);
+      const names = (p.deptIds || []).map(x => S.deptById(x)?.name).filter(Boolean);
       const q = S.quota(p.id);
       return el('div.mrow', {},
         el('span.avatar.sm', { style: { background: p.color || U.colorOf(p.name) } }, U.initials(p.name)),
         el('div.mrow-main', {},
           el('div.mrow-title', {}, p.name),
-          el('div.mrow-sub', {}, [p.role, d ? d.name : 'Ohne Abteilung',
+          el('div.mrow-sub', {}, [p.role, names.length ? names.join(', ') : 'Ohne Abteilung',
             `Rest ${U.num(q.remaining)} von ${U.num(q.total)}`].filter(Boolean).join(' · '))),
         el('div.mrow-actions', {},
           el('button.iconbtn', { html: U.icon('calendar', 14), title: 'Details', onclick: () => { m.close(); openPerson(p.id); } }),
@@ -1612,11 +1690,12 @@ UP.app = (function () {
         el('div.sec-title', {}, 'So planst du'),
         el('div.mlist', {},
           tip('1', 'Abteilungen anlegen', 'Im Menü unter „Abteilungen“ oder in der Team-Ansicht. Jede Abteilung bekommt einen Grenzwert: wie viele Personen dort höchstens gleichzeitig fehlen dürfen.'),
-          tip('2', 'Personen zuordnen', 'In der Team-Ansicht lassen sich Personenkarten per Drag & Drop zwischen Abteilungen ziehen. In der Jahresansicht funktioniert das ebenfalls: Namen links anfassen und auf eine andere Abteilung ziehen.'),
-          tip('3', 'Urlaub eintragen', 'In der Jahres- oder Monatsansicht einfach in der Zeile der Person über den gewünschten Zeitraum ziehen. Balken lassen sich verschieben, an den Rändern verlängern und per Klick bearbeiten.'),
-          tip('4', 'Überschneidungen prüfen', 'Die Zahl im Reiter „Überschneidungen“ zeigt, an wie vielen Zeiträumen zu viele Leute gleichzeitig weg wären. Schon beim Eintragen warnt der Planer, bevor gespeichert wird.'),
-          tip('5', 'Jahre archivieren', 'Über die Jahreszahl oben links lassen sich Jahre wechseln und neue anlegen – wahlweise mit dem Team des Vorjahres und dem Resturlaub als Übertrag. Alte Jahre bleiben dauerhaft einsehbar.'),
-          tip('6', 'Speichern passiert von selbst', 'Es gibt keinen Speichern-Knopf. Gesichert wird kurz nach jeder Eingabe, beim Wegschalten des Tabs, beim Schließen und beim nächsten Öffnen für alles, was offen blieb. Die Anzeige oben rechts sagt, woran du bist.')),
+          tip('2', 'Unterkategorien bilden', 'Eine Abteilung kann einer anderen untergeordnet werden – „Food“ umfasst zum Beispiel Getränke, Drogerie, Spirituosen und Trockensortiment. Jede Ebene hat ihren eigenen Grenzwert, und wer in einer Unterkategorie fehlt, fehlt auch in der übergeordneten Abteilung.'),
+          tip('3', 'Personen zuordnen', 'In der Team-Ansicht lassen sich Personenkarten per Drag & Drop zwischen Abteilungen ziehen; am Rand rollt die Ansicht mit. Mit gedrückter Strg-Taste wird kopiert statt verschoben – so steht jemand in mehreren Bereichen zugleich. In der Jahresansicht geht beides genauso.'),
+          tip('4', 'Urlaub eintragen', 'In der Jahres- oder Monatsansicht einfach in der Zeile der Person über den gewünschten Zeitraum ziehen. Balken lassen sich verschieben, an den Rändern verlängern und per Klick bearbeiten.'),
+          tip('5', 'Überschneidungen prüfen', 'Die Zahl im Reiter „Überschneidungen“ zeigt, an wie vielen Zeiträumen zu viele Leute gleichzeitig weg wären. Schon beim Eintragen warnt der Planer, bevor gespeichert wird.'),
+          tip('6', 'Jahre archivieren', 'Über die Jahreszahl oben links lassen sich Jahre wechseln und neue anlegen – wahlweise mit dem Team des Vorjahres und dem Resturlaub als Übertrag. Alte Jahre bleiben dauerhaft einsehbar.'),
+          tip('7', 'Speichern passiert von selbst', 'Es gibt keinen Speichern-Knopf. Gesichert wird kurz nach jeder Eingabe, beim Wegschalten des Tabs, beim Schließen und beim nächsten Öffnen für alles, was offen blieb. Die Anzeige oben rechts sagt, woran du bist.')),
 
         el('div.sec-title', { style: { marginTop: '20px' } }, 'Tastenkürzel'),
         el('div.mlist', {},

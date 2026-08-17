@@ -114,17 +114,38 @@ UP.store = (function () {
       years: {},
     };
     for (const [y, yd] of Object.entries(data.years || {})) {
+      const depts = (yd.departments || []).map(d => ({
+        id: d.id || U.uid('d'), name: d.name || 'Abteilung',
+        color: d.color || U.DEPT_COLORS[0],
+        // Unterkategorien: null = oberste Ebene
+        parentId: d.parentId ?? null,
+        maxAbsent: Number.isFinite(d.maxAbsent) ? d.maxAbsent : 2,
+        collapsed: !!d.collapsed,
+      }));
+      const known = new Set(depts.map(d => d.id));
+      // Verwaiste oder im Kreis zeigende Verweise auflösen
+      depts.forEach(d => { if (d.parentId && !known.has(d.parentId)) d.parentId = null; });
+      depts.forEach(d => {
+        const seen = new Set([d.id]);
+        let cur = d;
+        while (cur.parentId) {
+          if (seen.has(cur.parentId)) { d.parentId = null; break; }
+          seen.add(cur.parentId);
+          cur = depts.find(x => x.id === cur.parentId);
+          if (!cur) break;
+        }
+      });
+
       s.years[y] = {
         locked: !!yd.locked,
-        departments: (yd.departments || []).map(d => ({
-          id: d.id || U.uid('d'), name: d.name || 'Abteilung',
-          color: d.color || U.DEPT_COLORS[0],
-          maxAbsent: Number.isFinite(d.maxAbsent) ? d.maxAbsent : 2,
-          collapsed: !!d.collapsed,
-        })),
+        departments: depts,
         people: (yd.people || []).map(p => ({
           id: p.id || U.uid('p'), name: p.name || 'Unbenannt',
-          deptId: p.deptId ?? null, role: p.role || '',
+          // Früher gab es genau eine Abteilung je Person – jetzt beliebig viele.
+          deptIds: (Array.isArray(p.deptIds) ? p.deptIds : (p.deptId ? [p.deptId] : []))
+            .filter(id => known.has(id))
+            .filter((id, i, a) => a.indexOf(id) === i),
+          role: p.role || '',
           entitlement: Number.isFinite(p.entitlement) ? p.entitlement : base.settings.defaultEntitlement,
           carryover: Number.isFinite(p.carryover) ? p.carryover : 0,
           color: p.color || null,
@@ -265,6 +286,67 @@ UP.store = (function () {
     return UP.util.diffDays(`${y}-01-01`, isoStr);
   }
 
+  /* ── Abteilungsbaum ─────────────────────────────────────────────────── */
+
+  /** Direkte Unterkategorien einer Abteilung (null = oberste Ebene). */
+  const childrenOf = (parentId, yd = currentYear()) =>
+    yd.departments.filter(d => (d.parentId ?? null) === (parentId ?? null));
+
+  /** Alle Unterkategorien, beliebig tief. */
+  function descendantIds(deptId, yd = currentYear()) {
+    const out = [];
+    const walk = id => childrenOf(id, yd).forEach(c => { out.push(c.id); walk(c.id); });
+    walk(deptId);
+    return out;
+  }
+
+  /** Die Abteilung selbst und alle darunterliegenden. */
+  const branchIds = (deptId, yd = currentYear()) => [deptId, ...descendantIds(deptId, yd)];
+
+  /** Kette nach oben: übergeordnete Abteilungen, nächste zuerst. */
+  function ancestorIds(deptId, yd = currentYear()) {
+    const out = [];
+    let cur = yd.departments.find(d => d.id === deptId);
+    const guard = new Set([deptId]);
+    while (cur && cur.parentId && !guard.has(cur.parentId)) {
+      out.push(cur.parentId);
+      guard.add(cur.parentId);
+      cur = yd.departments.find(d => d.id === cur.parentId);
+    }
+    return out;
+  }
+
+  /** Verschachtelungstiefe, oberste Ebene = 0. */
+  const depthOf = (deptId, yd = currentYear()) => ancestorIds(deptId, yd).length;
+
+  /**
+   * Abteilungen als Baum, in der Reihenfolge des gespeicherten Feldes.
+   * @returns {Array} [{ dept, depth, children: [...] }]
+   */
+  function deptTree(yd = currentYear(), parentId = null, depth = 0) {
+    return childrenOf(parentId, yd).map(d => ({
+      dept: d, depth, children: deptTree(yd, d.id, depth + 1),
+    }));
+  }
+
+  /** Baum in eine flache Liste in Anzeigereihenfolge auflösen. */
+  function deptList(yd = currentYear()) {
+    const out = [];
+    const walk = nodes => nodes.forEach(n => { out.push(n); walk(n.children); });
+    walk(deptTree(yd));
+    return out;
+  }
+
+  /** Alle Abteilungen einer Person, inklusive der übergeordneten. */
+  function deptClosure(person, yd = currentYear()) {
+    const set = new Set();
+    for (const id of (person.deptIds || [])) {
+      set.add(id);
+      ancestorIds(id, yd).forEach(a => set.add(a));
+    }
+    return set;
+  }
+
   /* ── Abteilungen ────────────────────────────────────────────────────── */
   function addDepartment(name, opts = {}) {
     const yd = currentYear();
@@ -272,28 +354,51 @@ UP.store = (function () {
       id: U.uid('d'),
       name: name || `Abteilung ${yd.departments.length + 1}`,
       color: opts.color || U.DEPT_COLORS[yd.departments.length % U.DEPT_COLORS.length],
+      parentId: opts.parentId ?? null,
       maxAbsent: Number.isFinite(opts.maxAbsent) ? opts.maxAbsent : state.settings.defaultMaxAbsent,
       collapsed: false,
     };
-    commit(`Abteilung „${dep.name}“ angelegt`, yd2 => { yd2.departments.push(dep); });
+    commit(`Abteilung „${dep.name}“ angelegt`, yd2 => {
+      // direkt hinter die übergeordnete Abteilung und deren bisherige Kinder
+      if (dep.parentId) {
+        const after = branchIds(dep.parentId, yd2);
+        let last = -1;
+        yd2.departments.forEach((d, i) => { if (after.includes(d.id)) last = i; });
+        yd2.departments.splice(last + 1, 0, dep);
+      } else {
+        yd2.departments.push(dep);
+      }
+    });
     return dep;
+  }
+
+  /** Prüft, ob `parentId` als übergeordnete Abteilung zulässig wäre. */
+  function canBeParent(deptId, parentId, yd = currentYear()) {
+    if (!parentId) return true;
+    if (parentId === deptId) return false;
+    return !branchIds(deptId, yd).includes(parentId);
   }
 
   function updateDepartment(id, patch) {
     return commit('Abteilung geändert', yd => {
       const d = yd.departments.find(x => x.id === id);
       if (!d) return false;
+      if ('parentId' in patch && !canBeParent(id, patch.parentId, yd)) delete patch.parentId;
       Object.assign(d, patch);
     });
   }
 
-  /** Löscht die Abteilung; Personen wandern in „Ohne Abteilung“. */
+  /**
+   * Löscht die Abteilung. Unterkategorien rücken eine Ebene nach oben,
+   * zugeordnete Personen verlieren nur diese eine Zuordnung.
+   */
   function deleteDepartment(id) {
     return commit('Abteilung gelöscht', yd => {
       const d = yd.departments.find(x => x.id === id);
       if (!d) return false;
+      yd.departments.forEach(x => { if (x.parentId === id) x.parentId = d.parentId ?? null; });
       yd.departments = yd.departments.filter(x => x.id !== id);
-      yd.people.forEach(p => { if (p.deptId === id) p.deptId = null; });
+      yd.people.forEach(p => { p.deptIds = (p.deptIds || []).filter(x => x !== id); });
     });
   }
 
@@ -316,10 +421,12 @@ UP.store = (function () {
 
   /* ── Personen ───────────────────────────────────────────────────────── */
   function addPerson(name, deptId, opts = {}) {
+    const ids = Array.isArray(opts.deptIds) ? opts.deptIds.slice()
+      : (deptId ? [deptId] : []);
     const p = {
       id: U.uid('p'),
       name: name || 'Neue Person',
-      deptId: deptId ?? null,
+      deptIds: ids.filter(Boolean).filter((x, i, a) => a.indexOf(x) === i),
       role: opts.role || '',
       entitlement: Number.isFinite(opts.entitlement) ? opts.entitlement : state.settings.defaultEntitlement,
       carryover: Number.isFinite(opts.carryover) ? opts.carryover : 0,
@@ -346,32 +453,66 @@ UP.store = (function () {
     });
   }
 
+  /** Ordnet eine Person zusätzlich einer Abteilung zu. */
+  function assignPerson(personId, deptId, label = 'Person zugeordnet') {
+    if (!deptId) return false;
+    return commit(label, yd => {
+      const p = yd.people.find(x => x.id === personId);
+      if (!p || (p.deptIds || []).includes(deptId)) return false;
+      p.deptIds = [...(p.deptIds || []), deptId];
+    });
+  }
+
+  /** Nimmt eine Person aus einer Abteilung heraus; die übrigen bleiben. */
+  function unassignPerson(personId, deptId) {
+    return commit('Zuordnung entfernt', yd => {
+      const p = yd.people.find(x => x.id === personId);
+      if (!p || !(p.deptIds || []).includes(deptId)) return false;
+      p.deptIds = p.deptIds.filter(x => x !== deptId);
+    });
+  }
+
   /**
-   * Verschiebt eine Person in eine Abteilung – optional an eine bestimmte
-   * Position innerhalb der Zielabteilung (Drag & Drop).
+   * Verschiebt eine Person von einer Abteilung in eine andere. Weitere
+   * Zuordnungen der Person bleiben unberührt. `fromDeptId` null bedeutet:
+   * die Person war bisher nirgends zugeordnet.
    */
-  function movePerson(personId, deptId, beforePersonId = null) {
+  function movePerson(personId, fromDeptId, toDeptId, beforePersonId = null) {
     return commit('Person verschoben', yd => {
       const idx = yd.people.findIndex(p => p.id === personId);
       if (idx < 0) return false;
       const [p] = yd.people.splice(idx, 1);
-      p.deptId = deptId ?? null;
+      let ids = (p.deptIds || []).filter(x => x !== fromDeptId);
+      if (toDeptId && !ids.includes(toDeptId)) ids = [...ids, toDeptId];
+      p.deptIds = ids;
+
       let insertAt = yd.people.length;
       if (beforePersonId) {
         const bi = yd.people.findIndex(x => x.id === beforePersonId);
         if (bi >= 0) insertAt = bi;
       } else {
-        // ans Ende der Zielabteilung
         let last = -1;
-        yd.people.forEach((x, i) => { if ((x.deptId ?? null) === (deptId ?? null)) last = i; });
-        insertAt = last + 1 || yd.people.length;
+        yd.people.forEach((x, i) => {
+          if (toDeptId ? (x.deptIds || []).includes(toDeptId) : !(x.deptIds || []).length) last = i;
+        });
+        insertAt = last >= 0 ? last + 1 : yd.people.length;
       }
       yd.people.splice(insertAt, 0, p);
     });
   }
 
+  /** Direkt zugeordnete Personen. `null` liefert die ohne jede Abteilung. */
   const peopleOf = (deptId, yd = currentYear()) =>
-    yd.people.filter(p => (p.deptId ?? null) === (deptId ?? null));
+    deptId == null
+      ? yd.people.filter(p => !(p.deptIds || []).length)
+      : yd.people.filter(p => (p.deptIds || []).includes(deptId));
+
+  /** Personen dieser Abteilung samt aller Unterkategorien, jede nur einmal. */
+  function peopleUnder(deptId, yd = currentYear()) {
+    if (deptId == null) return peopleOf(null, yd);
+    const ids = new Set(branchIds(deptId, yd));
+    return yd.people.filter(p => (p.deptIds || []).some(x => ids.has(x)));
+  }
 
   const personById = (id, yd = currentYear()) => yd.people.find(p => p.id === id);
   const deptById = (id, yd = currentYear()) => yd.departments.find(d => d.id === id) || null;
@@ -474,8 +615,12 @@ UP.store = (function () {
   const remainingIn = (y, personId) => quota(personId, y).remaining;
 
   /**
-   * Belegung pro Abteilung: Array[deptId][tagIndex] = Anzahl abwesender Personen.
-   * Nur Arten mit `counts: true` und nicht abgelehnte Einträge zählen.
+   * Belegung je Abteilung: Array[deptId][tagIndex] = Anzahl abwesender Personen.
+   *
+   * Eine übergeordnete Abteilung zählt alle Personen ihrer Unterkategorien mit,
+   * jede Person dabei nur einmal – auch wenn sie mehreren Unterkategorien
+   * zugeordnet ist. Nur Arten mit `counts: true` und nicht abgelehnte Einträge
+   * zählen; an Wochenenden und Feiertagen fehlt niemand zusätzlich.
    */
   function occupancy(y = state.ui.year) {
     const k = `occ:${y}:${state.settings.region}`;
@@ -483,41 +628,59 @@ UP.store = (function () {
     const yd = state.years[y];
     const cal = calendar(y);
     const n = cal.length;
-    const byDept = {};
-    const byPersonDay = {};       // personId → Set der belegten Tagesindizes
-    const total = new Array(n).fill(0);
 
-    const keys = yd.departments.map(d => d.id).concat(['__none__']);
-    keys.forEach(id => byDept[id] = new Array(n).fill(0));
-
+    // Schritt 1: Wer ist an welchem Arbeitstag abwesend?
+    const perDay = Array.from({ length: n }, () => new Set());
     for (const a of (yd?.absences || [])) {
       if (a.status === 'abgelehnt' || !TYPES[a.type].counts) continue;
-      const p = yd.people.find(x => x.id === a.personId);
-      if (!p) continue;
-      const key = p.deptId ?? '__none__';
-      if (!byDept[key]) byDept[key] = new Array(n).fill(0);
-      let s = Math.max(0, dayIndex(a.start, y) < 0 ? 0 : dayIndex(a.start, y));
+      let s = dayIndex(a.start, y); if (s < 0) s = 0;
       let e = dayIndex(a.end, y);
       if (e < 0) e = U.parseISO(a.end) > new Date(Number(y), 11, 31) ? n - 1 : -1;
       if (e < 0) continue;
-      const seen = (byPersonDay[a.personId] ||= new Set());
-      for (let i = s; i <= e && i < n; i++) {
-        if (!cal[i].workday) continue;      // an freien Tagen ist niemand „zusätzlich weg“
-        if (seen.has(i)) continue;          // Doppelzählung bei Überlappung vermeiden
-        seen.add(i);
-        byDept[key][i]++;
-        total[i]++;
+      for (let i = Math.max(0, s); i <= e && i < n; i++) {
+        if (cal[i].workday) perDay[i].add(a.personId);
       }
     }
-    return cache[k] = { byDept, total, byPersonDay };
+
+    // Schritt 2: je Person einmal auf alle ihre Abteilungen und deren
+    // übergeordnete Ebenen hochzählen.
+    const byDept = {};
+    const total = new Array(n).fill(0);
+    yd.departments.forEach(d => byDept[d.id] = new Array(n).fill(0));
+    byDept.__none__ = new Array(n).fill(0);
+
+    const closures = new Map();
+    for (const p of yd.people) {
+      const c = deptClosure(p, yd);
+      closures.set(p.id, c.size ? [...c] : ['__none__']);
+    }
+
+    for (let i = 0; i < n; i++) {
+      for (const pid of perDay[i]) {
+        const keys = closures.get(pid);
+        if (!keys) continue;                 // Person nicht mehr vorhanden
+        total[i]++;
+        for (const key of keys) {
+          (byDept[key] ||= new Array(n).fill(0))[i]++;
+        }
+      }
+    }
+
+    return cache[k] = { byDept, total, perDay };
   }
 
-  /** Personen einer Abteilung, die an Tagesindex `i` abwesend sind. */
+  /**
+   * Abwesende an einem Tag. `deptId` grenzt auf eine Abteilung samt ihrer
+   * Unterkategorien ein; '__none__' auf Personen ohne Abteilung.
+   */
   function absentOn(i, deptId, y = state.ui.year) {
     const yd = state.years[y];
     const cal = calendar(y);
     const day = cal[i];
     if (!day) return [];
+    const inBranch = deptId === undefined ? null
+      : deptId === '__none__' ? '__none__'
+        : new Set(branchIds(deptId, yd));
     const out = [];
     const seen = new Set();
     for (const a of yd.absences) {
@@ -525,7 +688,11 @@ UP.store = (function () {
       if (a.start > day.iso || a.end < day.iso) continue;
       const p = yd.people.find(x => x.id === a.personId);
       if (!p) continue;
-      if (deptId !== undefined && (p.deptId ?? '__none__') !== deptId) continue;
+      if (inBranch === '__none__') {
+        if ((p.deptIds || []).length) continue;
+      } else if (inBranch) {
+        if (!(p.deptIds || []).some(x => inBranch.has(x))) continue;
+      }
       if (seen.has(p.id)) continue;
       seen.add(p.id);
       out.push({ person: p, absence: a });
@@ -545,9 +712,14 @@ UP.store = (function () {
     const occ = occupancy(y);
     const out = [];
 
-    const groups = yd.departments.map(d => ({ id: d.id, name: d.name, color: d.color, max: d.maxAbsent, size: peopleOf(d.id, yd).length }));
+    const groups = deptList(yd).map(({ dept: d, depth }) => ({
+      id: d.id, name: d.name, color: d.color, max: d.maxAbsent, depth,
+      size: peopleUnder(d.id, yd).length,
+      path: [...ancestorIds(d.id, yd)].reverse()
+        .map(a => yd.departments.find(x => x.id === a)?.name).filter(Boolean),
+    }));
     const orphan = peopleOf(null, yd);
-    if (orphan.length) groups.push({ id: '__none__', name: 'Ohne Abteilung', color: '#8d97ab', max: state.settings.defaultMaxAbsent, size: orphan.length });
+    if (orphan.length) groups.push({ id: '__none__', name: 'Ohne Abteilung', color: '#8d97ab', max: state.settings.defaultMaxAbsent, size: orphan.length, depth: 0, path: [] });
 
     for (const g of groups) {
       const arr = occ.byDept[g.id] || [];
@@ -571,6 +743,7 @@ UP.store = (function () {
       }
       return {
         deptId: g.id, deptName: g.name, deptColor: g.color, max: g.max, teamSize: g.size,
+        deptPath: g.path, depth: g.depth,
         from: cal[run.from].iso, to: cal[run.to].iso,
         fromIdx: run.from, toIdx: run.to,
         workdays: run.days, peak: run.peak,
@@ -595,31 +768,46 @@ UP.store = (function () {
   }
 
   /**
-   * Prüft einen geplanten Zeitraum, bevor er gespeichert wird.
-   * @returns {{days:Array, worst:number, max:number, over:boolean}}
+   * Prüft einen geplanten Zeitraum, bevor er gespeichert wird – für jede
+   * Abteilung der Person und deren übergeordnete Ebenen einzeln, denn die
+   * Grenzwerte können sich unterscheiden.
+   *
+   * @returns {{over:boolean, groups:Array}} `groups` je geprüfter Abteilung
    */
   function previewImpact(personId, start, end, { ignoreAbsenceId = null, y = state.ui.year } = {}) {
     const yd = state.years[y];
     const cal = calendar(y);
     const p = yd.people.find(x => x.id === personId);
-    const dept = p ? (p.deptId ?? '__none__') : '__none__';
-    const d = yd.departments.find(x => x.id === dept);
-    const max = d ? d.maxAbsent : state.settings.defaultMaxAbsent;
+
+    const closure = p ? deptClosure(p, yd) : new Set();
+    const checks = closure.size
+      ? [...closure].map(id => {
+        const d = yd.departments.find(x => x.id === id);
+        return { id, name: d ? d.name : 'Abteilung', max: d ? d.maxAbsent : state.settings.defaultMaxAbsent };
+      })
+      : [{ id: '__none__', name: 'Ohne Abteilung', max: state.settings.defaultMaxAbsent }];
 
     let s = dayIndex(start, y), e = dayIndex(end, y);
     if (s < 0) s = 0;
     if (e < 0) e = cal.length - 1;
-    const days = [];
-    let worst = 0;
-    for (let i = s; i <= e && i < cal.length; i++) {
-      if (!cal[i].workday) continue;
-      const others = absentOn(i, dept, y)
-        .filter(x => x.person.id !== personId && x.absence.id !== ignoreAbsenceId);
-      const count = others.length + 1;
-      worst = Math.max(worst, count);
-      if (count > max) days.push({ i, iso: cal[i].iso, count, others: others.map(o => o.person) });
-    }
-    return { days, worst, max, over: days.length > 0, deptName: d ? d.name : 'Ohne Abteilung' };
+
+    const groups = checks.map(c => {
+      const days = [];
+      let worst = 0;
+      for (let i = s; i <= e && i < cal.length; i++) {
+        if (!cal[i].workday) continue;
+        const others = absentOn(i, c.id, y)
+          .filter(x => x.person.id !== personId && x.absence.id !== ignoreAbsenceId);
+        const count = others.length + 1;
+        worst = Math.max(worst, count);
+        if (count > c.max) days.push({ i, iso: cal[i].iso, count, others: others.map(o => o.person) });
+      }
+      return { ...c, days, worst, over: days.length > 0, deptName: c.name };
+    });
+
+    // die kritischste Abteilung zuerst
+    groups.sort((a, b) => (b.worst - b.max) - (a.worst - a.max));
+    return { groups, over: groups.some(g => g.over) };
   }
 
   /* ── Demodaten ──────────────────────────────────────────────────────── */
@@ -634,28 +822,59 @@ UP.store = (function () {
 
     yd.departments = []; yd.people = []; yd.absences = []; yd.closures = [];
 
-    const defs = [
-      { name: 'Bauleitung',   max: 1, people: [['Miriam Kessler', 'Bauleiterin'], ['Tobias Reinhardt', 'Bauleiter'], ['Sven Lorenz', 'Polier']] },
-      { name: 'Hochbau',      max: 3, people: [['Ahmet Yildiz', 'Maurer'], ['Piotr Nowak', 'Maurer'], ['Lukas Brandt', 'Betonbauer'], ['Dario Conti', 'Betonbauer'], ['Marek Wójcik', 'Facharbeiter'], ['Jonas Hesse', 'Azubi']] },
-      { name: 'Tiefbau',      max: 2, people: [['Frank Osterloh', 'Baggerfahrer'], ['Kevin Sander', 'Rohrleger'], ['Igor Petrov', 'Rohrleger'], ['Nils Achterberg', 'Facharbeiter']] },
-      { name: 'Werkstatt',    max: 1, people: [['Heiko Baumann', 'Mechaniker'], ['Ceyhan Demir', 'Schweißer']] },
-      { name: 'Verwaltung',   max: 2, people: [['Sabine Vogt', 'Buchhaltung'], ['Nadja Wehrle', 'Lohnbuchhaltung'], ['Christoph Behr', 'Kalkulation'], ['Elif Karaca', 'Sekretariat']] },
-    ];
-
-    defs.forEach((d, di) => {
+    /* Aufbau mit Unterkategorien: „Food“ fasst vier Warenbereiche zusammen und
+       hat einen eigenen Grenzwert für den gesamten Bereich. Einige Personen
+       arbeiten in zwei Warenbereichen und erscheinen deshalb in beiden. */
+    const mk = (name, parentId, max, ci) => {
+      // Feldreihenfolge wie beim Laden, damit ein neu angelegter und ein
+      // geladener Plan gleich aussehen.
       const dep = {
-        id: U.uid('d'), name: d.name,
-        color: U.DEPT_COLORS[di % U.DEPT_COLORS.length],
-        maxAbsent: d.max, collapsed: false,
+        id: U.uid('d'), name,
+        color: U.DEPT_COLORS[ci % U.DEPT_COLORS.length],
+        parentId: parentId || null,
+        maxAbsent: max, collapsed: false,
       };
       yd.departments.push(dep);
-      d.people.forEach(([name, role]) => {
-        yd.people.push({
-          id: U.uid('p'), name, deptId: dep.id, role,
-          entitlement: role === 'Azubi' ? 28 : 30,
-          carryover: [0, 0, 2, 3, 0, 5][Math.floor(Math.random() * 6)],
-          color: null,
-        });
+      return dep.id;
+    };
+
+    const food = mk('Food', null, 4, 0);
+    const getraenke = mk('Getränke', food, 1, 1);
+    const drogerie = mk('Drogerie', food, 1, 2);
+    const spirituosen = mk('Spirituosen', food, 1, 3);
+    const trocken = mk('Trockensortiment', food, 2, 4);
+    const kasse = mk('Kasse', null, 2, 5);
+    const lager = mk('Lager', null, 1, 6);
+    const verwaltung = mk('Verwaltung', null, 1, 7);
+
+    const team = [
+      ['Miriam Kessler',   'Bereichsleitung', [food]],
+      ['Tobias Reinhardt', 'Warengruppe',     [getraenke, spirituosen]],
+      ['Sven Lorenz',      'Verkauf',         [getraenke]],
+      ['Ahmet Yildiz',     'Verkauf',         [getraenke, trocken]],
+      ['Piotr Nowak',      'Verkauf',         [drogerie]],
+      ['Lukas Brandt',     'Warengruppe',     [drogerie]],
+      ['Dario Conti',      'Verkauf',         [spirituosen, trocken]],
+      ['Marek Wójcik',     'Verkauf',         [spirituosen]],
+      ['Jonas Hesse',      'Azubi',           [trocken, getraenke]],
+      ['Frank Osterloh',   'Verkauf',         [trocken]],
+      ['Kevin Sander',     'Verkauf',         [trocken]],
+      ['Nadja Wehrle',     'Kasse',           [kasse]],
+      ['Elif Karaca',      'Kasse',           [kasse, drogerie]],
+      ['Sabine Vogt',      'Kasse',           [kasse]],
+      ['Igor Petrov',      'Lager',           [lager]],
+      ['Nils Achterberg',  'Lager',           [lager, trocken]],
+      ['Heiko Baumann',    'Warenannahme',    [lager]],
+      ['Ceyhan Demir',     'Buchhaltung',     [verwaltung]],
+      ['Christoph Behr',   'Personal',        [verwaltung]],
+    ];
+
+    team.forEach(([name, role, deptIds]) => {
+      yd.people.push({
+        id: U.uid('p'), name, deptIds: deptIds.slice(), role,
+        entitlement: role === 'Azubi' ? 28 : 30,
+        carryover: [0, 0, 2, 3, 0, 5][Math.floor(Math.random() * 6)],
+        color: null,
       });
     });
 
@@ -696,14 +915,14 @@ UP.store = (function () {
     // Ein paar bewusst gesetzte Überschneidungen, damit die Prüfung im
     // Beispiel auch etwas zu zeigen hat.
     const overlapPlan = [
-      ['Bauleitung', 0, 1, [7, 3], 9],   // zwei Bauleiter gleichzeitig im August
-      ['Werkstatt',  0, 1, [9, 5], 7],   // beide Werkstattkräfte im Oktober
-      ['Tiefbau',    0, 2, [6, 8], 12],  // drei von vier im Juli
+      ['Getränke',         0, 1, [7, 3], 9],   // zwei aus Getränke gleichzeitig
+      ['Kasse',            0, 1, [9, 5], 7],   // zwei an der Kasse im Oktober
+      ['Trockensortiment', 0, 2, [6, 8], 12],  // drei im Trockensortiment im Juli
     ];
     for (const [deptName, from, to, [mo, day], len] of overlapPlan) {
       const dep = yd.departments.find(d => d.name === deptName);
       if (!dep) continue;
-      const members = yd.people.filter(p => p.deptId === dep.id);
+      const members = yd.people.filter(p => (p.deptIds || []).includes(dep.id));
       for (let k = from; k <= to && k < members.length; k++) {
         const start = new Date(y, mo, day + k);
         const end = U.addDays(start, len - 1);
@@ -805,7 +1024,10 @@ UP.store = (function () {
     year, currentYear, yearData, listYears, setYear, createYear, deleteYear, isLocked,
     calendar, dayIndex,
     addDepartment, updateDepartment, deleteDepartment, moveDepartment, toggleCollapse,
-    addPerson, updatePerson, deletePerson, movePerson, peopleOf, personById, deptById,
+    childrenOf, descendantIds, branchIds, ancestorIds, depthOf, deptTree, deptList,
+    deptClosure, canBeParent,
+    addPerson, updatePerson, deletePerson, movePerson, assignPerson, unassignPerson,
+    peopleOf, peopleUnder, personById, deptById,
     addAbsence, updateAbsence, deleteAbsence, absencesOf,
     addClosure, deleteClosure,
     workdaysOf, quota, occupancy, absentOn, conflicts, conflictDaySet, previewImpact,

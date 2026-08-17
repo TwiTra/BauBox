@@ -30,9 +30,9 @@ UP.views.team = (function () {
     if (!UP.app.requireUnlocked()) return;
     S.commit('Personen sortiert', yd => {
       const rank = new Map(yd.departments.map((d, i) => [d.id, i]));
+      const first = p => Math.min(...((p.deptIds || []).map(x => rank.get(x) ?? 999).concat(999)));
       yd.people.sort((a, b) => {
-        const da = rank.has(a.deptId) ? rank.get(a.deptId) : 999;
-        const db = rank.has(b.deptId) ? rank.get(b.deptId) : 999;
+        const da = first(a), db = first(b);
         if (da !== db) return da - db;
         if (mode === 'rest') return S.quota(b.id).remaining - S.quota(a.id).remaining;
         return U.byName(a.name, b.name);
@@ -46,23 +46,85 @@ UP.views.team = (function () {
     if (!yd.departments.length && !yd.people.length) { host.appendChild(UP.app.emptyState()); return; }
 
     const board = el('div.board');
-    const cols = el('div.board-cols');
 
-    yd.departments.forEach((d, i) => cols.appendChild(column(d, i)));
+    /* Abteilungen mit Unterkategorien werden zu einem Block zusammengefasst:
+       Überschrift mit der Gesamtzahl, darunter die Unterspalten nebeneinander.
+       Abteilungen ohne Unterkategorien stehen wie bisher nebeneinander in einer
+       gemeinsamen Reihe – sonst bekäme jede eine eigene Zeile und das Brett
+       würde unnötig hoch. */
+    let reihe = null;
+    const reiheAbschliessen = () => { if (reihe) { board.appendChild(reihe); reihe = null; } };
+
+    for (const node of S.deptTree(yd)) {
+      if (node.children && node.children.length) {
+        reiheAbschliessen();
+        board.appendChild(groupBlock(node, yd));
+      } else {
+        if (!reihe) reihe = el('div.board-cols', { style: { marginBottom: '14px' } });
+        reihe.appendChild(column(node.dept, yd.departments.findIndex(x => x.id === node.dept.id)));
+      }
+    }
+    reiheAbschliessen();
+
     const orphans = S.peopleOf(null, yd);
-    cols.appendChild(column(null, -1, orphans.length === 0));
-
-    cols.appendChild(el('div', { style: { flex: '0 0 240px' } },
-      U.btn('soft-btn', 'plus', 'Abteilung hinzufügen', {
-        style: { width: '100%', height: '44px', borderStyle: 'dashed' },
-        onclick: () => UP.app.editDepartment(null),
-      })));
-
-    board.appendChild(cols);
+    const rest = el('div.board-cols', { style: { marginTop: '14px' } },
+      column(null, -1, orphans.length === 0),
+      el('div', { style: { flex: '0 0 240px' } },
+        U.btn('soft-btn', 'plus', 'Abteilung hinzufügen', {
+          style: { width: '100%', height: '44px', borderStyle: 'dashed' },
+          onclick: () => UP.app.editDepartment(null),
+        })));
+    board.appendChild(rest);
     host.appendChild(board);
   }
 
-  function column(dept, index, faded = false) {
+  /** Eine Abteilung samt ihrer Unterkategorien. */
+  function groupBlock(node, yd, depth = 0) {
+    const d = node.dept;
+    const kids = node.children || [];
+    const index = yd.departments.findIndex(x => x.id === d.id);
+
+    if (!kids.length) {
+      return el('div.board-cols', { style: { marginBottom: '14px' } }, column(d, index));
+    }
+
+    const under = S.peopleUnder(d.id, yd);
+    const cf = S.conflicts().filter(c => c.deptId === d.id).length;
+    const direct = S.peopleOf(d.id, yd);
+
+    const head = el('div.bgroup-head', {},
+      el('span.cbar', { style: { background: d.color } }),
+      el('span.bgroup-name', { text: d.name }),
+      el('span.tag', { title: 'Personen insgesamt, jede nur einmal gezählt' },
+        `${under.length} gesamt`),
+      el('span.tag', { class: cf ? 'danger' : '' }, `max ${d.maxAbsent} gleichzeitig`),
+      cf ? el('span.tag.danger', {}, `${cf} Überschneidung${cf > 1 ? 'en' : ''}`) : null,
+      el('div', { style: { marginLeft: 'auto', display: 'flex', gap: '6px' } },
+        U.btn('soft-btn btn-sm', 'plus', 'Unterkategorie', {
+          onclick: () => UP.app.editDepartment(null, d.id),
+        }),
+        el('button.iconbtn', {
+          html: U.icon('pencil', 14), title: 'Abteilung bearbeiten',
+          onclick: () => UP.app.editDepartment(d.id),
+        })));
+
+    const cols = el('div.board-cols');
+    // direkt der übergeordneten Abteilung zugeordnete Personen zuerst
+    if (direct.length) cols.appendChild(column(d, index, false, true));
+    kids.forEach(k => {
+      const sub = groupBlock(k, yd, depth + 1);
+      // eine Ebene tiefer ohne eigenen Rahmen einhängen
+      if (sub.classList.contains('board-cols')) {
+        while (sub.firstChild) cols.appendChild(sub.firstChild);
+      } else {
+        cols.appendChild(sub);
+      }
+    });
+
+    return el('div.bgroup', { dataset: { dept: d.id } }, head, cols);
+  }
+
+  function column(dept, index, faded = false, directOnly = false) {
     const yd = S.currentYear();
     const id = dept ? dept.id : '__none__';
     const people = S.peopleOf(dept ? dept.id : null, yd);
@@ -73,7 +135,7 @@ UP.views.team = (function () {
     const conflictCount = S.conflicts().filter(c => c.deptId === id).length;
 
     const list = el('div.bcol-list', { dataset: { dept: id } });
-    people.forEach(p => list.appendChild(personCard(p)));
+    people.forEach(p => list.appendChild(personCard(p, dept ? dept.id : null)));
     if (!people.length) list.appendChild(el('div.small.muted', {
       style: { padding: '14px 8px', textAlign: 'center', border: '1px dashed var(--border)', borderRadius: '10px' },
       text: 'Karten hierher ziehen',
@@ -81,9 +143,12 @@ UP.views.team = (function () {
 
     const head = el('div.bcol-head', {},
       el('span.cbar', { style: { background: color } }),
-      el('span.cname', { text: dept ? dept.name : 'Ohne Abteilung' }),
+      el('span.cname', {
+        text: directOnly ? `${dept.name} (direkt)` : dept ? dept.name : 'Ohne Abteilung',
+        title: directOnly ? 'Personen, die dieser Abteilung direkt zugeordnet sind – nicht über eine Unterkategorie' : '',
+      }),
       el('span.ccount', { text: String(people.length) }),
-      dept ? el('button.iconbtn', {
+      dept && !directOnly ? el('button.iconbtn', {
         html: U.icon('pencil', 14), title: 'Abteilung bearbeiten',
         onclick: e => { e.stopPropagation(); UP.app.editDepartment(dept.id); },
       }) : null);
@@ -115,15 +180,21 @@ UP.views.team = (function () {
     return col;
   }
 
-  function personCard(p) {
+  function personCard(p, inDeptId) {
     const q = S.quota(p.id);
     const abs = S.absencesOf(p.id);
     const restCls = q.remaining < 0 ? 'danger' : q.remaining <= 3 ? 'warn' : '';
+    const alsoIn = (p.deptIds || []).filter(x => x !== inDeptId)
+      .map(x => S.deptById(x)?.name).filter(Boolean);
 
-    const card = el('div.pcard', { dataset: { person: p.id } },
+    const card = el('div.pcard', { dataset: { person: p.id, from: inDeptId || '' } },
       el('span.avatar', { style: { background: p.color || U.colorOf(p.name) } }, U.initials(p.name)),
       el('div.pcard-main', {},
-        el('div.pcard-name', { text: p.name }),
+        el('div.pcard-name', {},
+          p.name,
+          alsoIn.length
+            ? el('span.multi-badge', { title: `Auch in: ${alsoIn.join(', ')}` }, `+${alsoIn.length}`)
+            : null),
         el('div.pcard-sub', {},
           p.role ? el('span', { text: p.role }) : null,
           p.role && abs.length ? el('span', { text: '·' }) : null,
@@ -139,7 +210,7 @@ UP.views.team = (function () {
 
     card.addEventListener('pointerdown', ev => {
       if (ev.target.closest('.miniedit')) return;
-      startCardDrag(ev, p, card);
+      startCardDrag(ev, p, card, inDeptId);
     });
     card.addEventListener('click', ev => {
       if (ev.defaultPrevented || ev.target.closest('.miniedit')) return;
@@ -150,17 +221,34 @@ UP.views.team = (function () {
   }
 
   /* ── Ziehen: Personenkarte ──────────────────────────────────────────── */
-  function startCardDrag(ev, p, card) {
+  /**
+   * Ziehen verschiebt die Person aus dieser Spalte in die Zielspalte. Mit
+   * gedrückter Strg-Taste (bzw. Alt) bleibt die bisherige Zuordnung bestehen –
+   * die Person gehört danach zu beiden Abteilungen.
+   */
+  function startCardDrag(ev, p, card, fromDeptId) {
     let dropLine = null, targetList = null, beforeId = null, dragged = false;
+    let copy = ev.ctrlKey || ev.metaKey || ev.altKey;
+    let proxyNode = null;
 
     const clearLine = () => { dropLine?.remove(); dropLine = null; };
+    const trackKeys = e => {
+      const now = e.ctrlKey || e.metaKey || e.altKey;
+      if (now === copy) return;
+      copy = now;
+      proxyNode?.classList.toggle('is-copy', copy);
+    };
+    window.addEventListener('keydown', trackKeys, true);
+    window.addEventListener('keyup', trackKeys, true);
 
     UP.dnd.begin(ev, {
       threshold: 6,
       makeProxy: () => {
         const clone = card.cloneNode(true);
         clone.classList.remove('dragging');
+        clone.classList.toggle('is-copy', copy);
         clone.style.background = 'var(--surface)';
+        proxyNode = clone;
         return clone;
       },
       onStart: () => { dragged = true; card.classList.add('dragging'); },
@@ -186,17 +274,29 @@ UP.views.team = (function () {
         else targetList.appendChild(dropLine);
       },
       onEnd: (x, y, target, cancelled) => {
+        window.removeEventListener('keydown', trackKeys, true);
+        window.removeEventListener('keyup', trackKeys, true);
         card.classList.remove('dragging');
         targetList?.closest('.bcol')?.classList.remove('drop-target');
         clearLine();
         if (cancelled || !dragged || !targetList) return;
         if (!UP.app.requireUnlocked()) return;
         const raw = targetList.dataset.dept;
-        const deptId = raw === '__none__' ? null : raw;
-        const sameSpot = (p.deptId ?? null) === deptId && !beforeId;
-        S.movePerson(p.id, deptId, beforeId);
+        const toId = raw === '__none__' ? null : raw;
+        const d = S.deptById(toId);
+
+        if (copy && toId) {
+          if ((p.deptIds || []).includes(toId)) return;
+          S.assignPerson(p.id, toId, `${p.name} zusätzlich zugeordnet`);
+          UP.app.toast('ok', `${p.name} jetzt auch in „${d.name}“`, {
+            action: { label: 'Rückgängig', fn: () => UP.app.doUndo() },
+          });
+          return;
+        }
+
+        const sameSpot = toId === fromDeptId && !beforeId;
+        S.movePerson(p.id, fromDeptId, toId, beforeId);
         if (!sameSpot) {
-          const d = S.deptById(deptId);
           UP.app.toast('ok', `${p.name} → ${d ? d.name : 'Ohne Abteilung'}`, {
             action: { label: 'Rückgängig', fn: () => UP.app.doUndo() },
           });

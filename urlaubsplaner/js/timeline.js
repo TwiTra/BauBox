@@ -120,12 +120,15 @@ UP.views.jahr = (function () {
     const body = el('div.tl-body', { style: { position: 'relative' } });
     body.appendChild(backgroundLayer(cal, w, totalW, yd));
 
-    const groups = yd.departments.map(d => ({ dept: d, people: S.peopleOf(d.id, yd) }));
+    // Abteilungen als Baum: erst die Sammelzeile, dann die direkt zugeordneten
+    // Personen, dann die Unterkategorien eine Stufe eingerückt.
+    for (const node of S.deptTree(yd)) {
+      body.appendChild(deptBlock(node, cal, w, totalW, occ, cfDays, term));
+    }
     const orphans = S.peopleOf(null, yd);
-    if (orphans.length) groups.push({ dept: null, people: orphans });
-
-    for (const g of groups) {
-      body.appendChild(deptBlock(g, cal, w, totalW, occ, cfDays, term));
+    if (orphans.length) {
+      body.appendChild(deptBlock({ dept: null, depth: 0, children: [] },
+        cal, w, totalW, occ, cfDays, term));
     }
 
     grid.appendChild(body);
@@ -252,28 +255,40 @@ UP.views.jahr = (function () {
     return layer;
   }
 
-  /* ── Abteilungsblock ────────────────────────────────────────────────── */
-  function deptBlock(g, cal, w, totalW, occ, cfDays, term) {
-    const d = g.dept;
+  /* ── Abteilungsblock (rekursiv über die Unterkategorien) ────────────── */
+  function deptBlock(node, cal, w, totalW, occ, cfDays, term) {
+    const d = node.dept;
+    const yd = S.currentYear();
     const id = d ? d.id : '__none__';
+    const depth = node.depth || 0;
     const color = d ? d.color : '#8d97ab';
     const max = d ? d.maxAbsent : S.settings.defaultMaxAbsent;
 
+    const direct = S.peopleOf(d ? d.id : null, yd);
+    const under = d ? S.peopleUnder(d.id, yd) : direct;
+    const hasKids = (node.children || []).length > 0;
+
     const block = el('div.tl-dept', {
       class: d && d.collapsed ? 'collapsed' : '',
-      dataset: { dept: id },
+      dataset: { dept: id, depth },
     });
 
     /* Kopfzeile mit Belegungsbalken */
-    const name = el('div.tl-deptname', {},
+    const name = el('div.tl-deptname', {
+      style: { paddingLeft: (8 + depth * 15) + 'px' },
+      title: d
+        ? `${d.name}${hasKids ? ' (mit Unterkategorien)' : ''} – höchstens ${max} gleichzeitig abwesend` +
+          (hasKids ? `\nZählt alle ${under.length} Personen der Unterkategorien, jede nur einmal.` : '')
+        : 'Personen ohne Abteilung',
+    },
       el('button.caret', {
         html: U.icon('chevron', 14),
         title: 'Auf-/Zuklappen',
         onclick: e => { e.stopPropagation(); if (d) S.toggleCollapse(d.id); },
       }),
       el('span.dot', { style: { background: color } }),
-      el('span.dname', { text: d ? d.name : 'Ohne Abteilung', title: d ? `${d.name} – max. ${max} gleichzeitig abwesend` : 'Personen ohne Abteilung' }),
-      el('span.cnt', { text: `${g.people.length} · max ${max}` })
+      el('span.dname', { class: hasKids ? 'is-parent' : '', text: d ? d.name : 'Ohne Abteilung' }),
+      el('span.cnt', { text: `${under.length} · max ${max}` })
     );
     if (d) name.addEventListener('dblclick', () => UP.app.editDepartment(d.id));
 
@@ -281,12 +296,20 @@ UP.views.jahr = (function () {
     renderLoad(load, occ.byDept[id] || [], cal, w, max, id);
 
     block.appendChild(el('div.tl-deptbar', {
+      class: hasKids ? 'is-parent' : '',
       style: { top: 'var(--tl-head-h)' },
     }, name, load));
 
-    /* Personenzeilen */
+    /* Direkt zugeordnete Personen, danach die Unterkategorien */
     const rows = el('div.tl-rows');
-    for (const p of g.people) rows.appendChild(personRow(p, d, cal, w, totalW, cfDays, term));
+    // Konflikte der Abteilung selbst und ihrer übergeordneten Ebenen zählen
+    const cfKeys = d ? [d.id, ...S.ancestorIds(d.id, yd)] : ['__none__'];
+    for (const p of direct) {
+      rows.appendChild(personRow(p, d, cal, w, totalW, cfDays, term, depth, cfKeys));
+    }
+    for (const child of (node.children || [])) {
+      rows.appendChild(deptBlock(child, cal, w, totalW, occ, cfDays, term));
+    }
     block.appendChild(rows);
 
     return block;
@@ -316,20 +339,29 @@ UP.views.jahr = (function () {
   }
 
   /* ── Personenzeile ──────────────────────────────────────────────────── */
-  function personRow(p, dept, cal, w, totalW, cfDays, term) {
+  function personRow(p, dept, cal, w, totalW, cfDays, term, depth = 0, cfKeys = null) {
     const q = S.quota(p.id);
     const dim = term && !p.name.toLowerCase().includes(term) && !(p.role || '').toLowerCase().includes(term);
+    const yd = S.currentYear();
+    const alsoIn = (p.deptIds || []).filter(x => x !== (dept && dept.id))
+      .map(x => S.deptById(x, yd)?.name).filter(Boolean);
 
     const quotaCls = q.remaining < 0 ? 'over' : q.remaining <= 3 ? 'low' : '';
     const nameCell = el('div.tl-name', {
       dataset: { person: p.id },
-      title: `${p.name}${p.role ? ' · ' + p.role : ''}\nRest: ${U.num(q.remaining)} von ${U.num(q.total)} Tagen\nZum Verschieben ziehen · Klick öffnet die Details`,
+      style: { paddingLeft: (22 + depth * 15) + 'px' },
+      title: `${p.name}${p.role ? ' · ' + p.role : ''}\nRest: ${U.num(q.remaining)} von ${U.num(q.total)} Tagen` +
+        (alsoIn.length ? `\nAuch in: ${alsoIn.join(', ')}` : '') +
+        '\nZum Verschieben ziehen · mit Strg zusätzlich zuordnen · Klick öffnet die Details',
     },
       el('span.grip', { html: U.icon('grip', 13) }),
       el('span.avatar.sm', {
         style: { background: p.color || U.colorOf(p.name) },
       }, U.initials(p.name)),
       el('span.pname', { text: p.name }),
+      alsoIn.length
+        ? el('span.multi-badge', { title: `Auch in: ${alsoIn.join(', ')}` }, `+${alsoIn.length}`)
+        : null,
       el('span.pquota', { class: quotaCls, text: U.num(q.remaining) })
     );
 
@@ -338,7 +370,7 @@ UP.views.jahr = (function () {
       dataset: { person: p.id },
     });
 
-    const deptKey = p.deptId ?? '__none__';
+    const deptKeys = cfKeys || [dept ? dept.id : '__none__'];
     const list = S.absencesOf(p.id);
     const { lane, count } = assignLanes(list);
 
@@ -348,20 +380,20 @@ UP.views.jahr = (function () {
     const laneH = (rowH - PAD * 2) / count;
 
     for (const a of list) {
-      const bar = makeBar(a, p, cal, w, cfDays, deptKey, lane.get(a.id) || 0, count, laneH);
+      const bar = makeBar(a, p, cal, w, cfDays, deptKeys, lane.get(a.id) || 0, count, laneH);
       if (bar) track.appendChild(bar);
     }
 
     const row = el('div.tl-row', {
       class: dim ? 'dimmed' : '',
-      dataset: { person: p.id },
+      dataset: { person: p.id, dept: dept ? dept.id : '__none__' },
       style: count > 1 ? { height: rowH + 'px' } : null,
     }, nameCell, track);
 
     /* Person per Ziehen in eine andere Abteilung bewegen */
     nameCell.addEventListener('pointerdown', ev => {
       if (ev.target.closest('.caret')) return;
-      startPersonDrag(ev, p, row);
+      startPersonDrag(ev, p, row, dept ? dept.id : null);
     });
     nameCell.addEventListener('click', ev => {
       if (ev.defaultPrevented) return;
@@ -395,7 +427,7 @@ UP.views.jahr = (function () {
   }
 
   /* ── Balken ─────────────────────────────────────────────────────────── */
-  function makeBar(a, p, cal, w, cfDays, deptKey, laneIdx = 0, laneCount = 1, laneH = ROW_H - PAD * 2) {
+  function makeBar(a, p, cal, w, cfDays, deptKeys, laneIdx = 0, laneCount = 1, laneH = ROW_H - PAD * 2) {
     let s = S.dayIndex(a.start), e = S.dayIndex(a.end);
     if (s < 0) s = U.parseISO(a.start) < cal[0].date ? 0 : -1;
     if (e < 0) e = U.parseISO(a.end) > cal[cal.length - 1].date ? cal.length - 1 : -1;
@@ -407,8 +439,12 @@ UP.views.jahr = (function () {
     if (a.halfEnd) { width -= w / 2; }
     width = Math.max(3, width - 1);
 
+    // Ein Balken gilt als betroffen, wenn die Abteilung der Zeile oder eine
+    // ihrer übergeordneten Ebenen in diesem Zeitraum überbelegt ist.
     let conflicted = false;
-    for (let i = s; i <= e; i++) if (cfDays.has(`${deptKey}:${i}`)) { conflicted = true; break; }
+    outer: for (let i = s; i <= e; i++) {
+      for (const key of deptKeys) if (cfDays.has(`${key}:${i}`)) { conflicted = true; break outer; }
+    }
 
     const days = S.workdaysOf(a);
     const single = laneCount === 1;
@@ -540,18 +576,37 @@ UP.views.jahr = (function () {
   }
 
   /* ── Interaktion: Person in andere Abteilung ziehen ─────────────────── */
-  function startPersonDrag(ev, p, row) {
+  /**
+   * Ziehen verschiebt die Person aus der Abteilung dieser Zeile in die
+   * Zielabteilung. Wird dabei Strg (bzw. Alt) gehalten, bleibt die bisherige
+   * Zuordnung bestehen und die Person gehört danach zu beiden.
+   */
+  function startPersonDrag(ev, p, row, fromDeptId) {
     let lastTarget = null;
     let dragged = false;
+    let copy = ev.ctrlKey || ev.metaKey || ev.altKey;
+    const proxy = { node: null };
+
+    const trackKeys = e => {
+      const now = e.ctrlKey || e.metaKey || e.altKey;
+      if (now === copy) return;
+      copy = now;
+      if (proxy.node) proxy.node.classList.toggle('is-copy', copy);
+    };
+    window.addEventListener('keydown', trackKeys, true);
+    window.addEventListener('keyup', trackKeys, true);
 
     UP.dnd.begin(ev, {
       threshold: 6,
       proxyRect: () => row.querySelector('.tl-name').getBoundingClientRect(),
       makeProxy: () => {
-        const n = el('div.pcard', { style: { background: 'var(--surface)', width: '230px' } },
+        proxy.node = el('div.pcard', {
+          class: copy ? 'is-copy' : '',
+          style: { background: 'var(--surface)', width: '230px' },
+        },
           el('span.avatar.sm', { style: { background: p.color || U.colorOf(p.name) } }, U.initials(p.name)),
           el('div.pcard-main', {}, el('div.pcard-name', { text: p.name })));
-        return n;
+        return proxy.node;
       },
       onStart: () => { dragged = true; row.classList.add('dragging'); },
       onMove: (x, y, target) => {
@@ -562,20 +617,31 @@ UP.views.jahr = (function () {
         lastTarget?.classList.add('drop-target');
       },
       onEnd: (x, y, target, cancelled) => {
+        window.removeEventListener('keydown', trackKeys, true);
+        window.removeEventListener('keyup', trackKeys, true);
         row.classList.remove('dragging');
         lastTarget?.classList.remove('drop-target');
         if (cancelled || !dragged) return;
         const block = target?.closest?.('.tl-dept');
         if (!block) return;
         const raw = block.dataset.dept;
-        const deptId = raw === '__none__' ? null : raw;
-        if ((p.deptId ?? null) === deptId) return;
+        const toId = raw === '__none__' ? null : raw;
+        if (toId === fromDeptId) return;
         if (!UP.app.requireUnlocked()) return;
-        S.movePerson(p.id, deptId);
-        const d = S.deptById(deptId);
-        UP.app.toast('ok', `${p.name} → ${d ? d.name : 'Ohne Abteilung'}`, {
-          action: { label: 'Rückgängig', fn: () => UP.app.doUndo() },
-        });
+
+        const d = S.deptById(toId);
+        if (copy && toId) {
+          if ((p.deptIds || []).includes(toId)) return;
+          S.assignPerson(p.id, toId, `${p.name} zusätzlich zugeordnet`);
+          UP.app.toast('ok', `${p.name} jetzt auch in „${d.name}“`, {
+            action: { label: 'Rückgängig', fn: () => UP.app.doUndo() },
+          });
+        } else {
+          S.movePerson(p.id, fromDeptId, toId);
+          UP.app.toast('ok', `${p.name} → ${d ? d.name : 'Ohne Abteilung'}`, {
+            action: { label: 'Rückgängig', fn: () => UP.app.doUndo() },
+          });
+        }
       },
     });
   }
