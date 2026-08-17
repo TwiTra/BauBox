@@ -49,6 +49,20 @@ UP.cloud = (function () {
 
   const configured = () => !!clientIdValue();
 
+  /**
+   * Manche Umgebungen können Google grundsätzlich nicht erreichen. Das vorher
+   * zu erkennen erspart die zehn Minuten Einrichtung, die dann ins Leere läuft.
+   *
+   * @returns {'sandbox'|'file'|null}
+   */
+  function blockedEnvironment() {
+    // Direkt geöffnete Dateien haben keine Adresse, die Google zulässt.
+    if (location.protocol !== 'http:' && location.protocol !== 'https:') return 'file';
+    // Veröffentlichte Seiten auf claude.ai dürfen keine fremden Server rufen.
+    if (window.claude || /(^|\.)claudeusercontent\.com$/.test(location.hostname)) return 'sandbox';
+    return null;
+  }
+
   function rememberFile(id) {
     fileId = id;
     try { id ? localStorage.setItem(FILE_KEY, id) : localStorage.removeItem(FILE_KEY); }
@@ -64,6 +78,14 @@ UP.cloud = (function () {
   function loadGis() {
     if (window.google?.accounts?.oauth2) return Promise.resolve();
     if (CFG().fakeGis) return Promise.resolve();          // Prüfbetrieb
+    const blocked = blockedEnvironment();
+    if (blocked) {
+      const err = new Error(blocked === 'sandbox'
+        ? 'Diese Ansicht darf keine fremden Server aufrufen – Google Drive ist hier nicht möglich.'
+        : 'Direkt geöffnete Dateien lässt Google nicht zu – der Planer muss über eine Adresse laufen.');
+      err.blocked = blocked;
+      return Promise.reject(err);
+    }
     return new Promise((resolve, reject) => {
       const existing = document.querySelector(`script[src="${GIS_SRC}"]`);
       if (existing) { existing.addEventListener('load', resolve); existing.addEventListener('error', reject); return; }
@@ -321,7 +343,7 @@ UP.cloud = (function () {
   };
 
   return {
-    transport, configured, clientIdValue, setClientId,
+    transport, configured, blockedEnvironment, clientIdValue, setClientId,
     connectInteractive, signOut,
     get account() { return account; },
     get fileName() { return fileName(); },

@@ -146,10 +146,10 @@ UP.app = (function () {
           option('drive', 'archive', 'Google Drive',
             'Der Plan liegt als eine Datei in deinem eigenen Google Drive. Alle Geräte greifen darauf zu, ' +
             'der PC muss dafür nicht laufen.',
-            UP.cloud.configured()
+            driveBlockedHint() || (UP.cloud.configured()
               ? null
               : el('div.small', { style: { color: 'var(--muted)', marginTop: '5px' } },
-                'Einmalige Einrichtung nötig – der Planer führt dich durch.'))),
+                'Einmalige Einrichtung nötig – der Planer führt dich durch.')))),
 
         el('div.note-box', { style: { marginTop: '16px' } },
           el('span.ico', { html: U.icon('info', 15) }),
@@ -163,8 +163,59 @@ UP.app = (function () {
     });
   }
 
+  /** Hinweis, wenn diese Umgebung Google gar nicht erreichen kann. */
+  function driveBlockedHint() {
+    const blocked = UP.cloud.blockedEnvironment();
+    if (!blocked) return null;
+    return el('div.small', { style: { color: 'var(--warn)', marginTop: '5px', lineHeight: '1.5' } },
+      blocked === 'sandbox'
+        ? 'Hier nicht möglich: Diese Ansicht darf keine fremden Server aufrufen. Starte den Planer ' +
+          'auf dem PC mit „python start.py“ oder über eine eigene Adresse – dort geht es.'
+        : 'Hier nicht möglich: Die Seite ist direkt als Datei geöffnet. Google verlangt eine Adresse – ' +
+          'starte den Planer mit „python start.py“.');
+  }
+
   /* ═══ Dialog: Google Drive einrichten ═══════════════════════════════ */
   function openDriveSetup() {
+    // Zehn Minuten Einrichtung wären hier vergeudet – vorher abfangen.
+    const blocked = UP.cloud.blockedEnvironment();
+    if (blocked) {
+      const m0 = modal({
+        title: 'Google Drive hier nicht möglich',
+        sub: blocked === 'sandbox' ? 'eingebettete Ansicht' : 'direkt geöffnete Datei',
+        size: 'narrow',
+        body: el('div', {},
+          el('div.note-box.warn', {},
+            el('span.ico', { html: U.icon('alert', 16) }),
+            el('div', {},
+              blocked === 'sandbox'
+                ? 'Diese Ansicht darf aus Sicherheitsgründen keine fremden Server aufrufen. Der Planer ' +
+                  'bräuchte dafür Google – das ist hier gesperrt, unabhängig von deinen Einstellungen ' +
+                  'bei Google.'
+                : 'Die Seite ist als Datei geöffnet. Google lässt nur Adressen zu, keine Dateipfade.')),
+          el('div.sec-title', { style: { marginTop: '18px' } }, 'So kommst du weiter'),
+          el('div.mlist', {},
+            el('div.mrow', {},
+              el('div.mrow-main', {},
+                el('div.mrow-title', {}, 'Auf dem PC starten'),
+                el('div.mrow-sub', {}, 'Im Ordner urlaubsplaner: ',
+                  el('span.mono', {}, 'python start.py'),
+                  ' – dann läuft der Planer unter ',
+                  el('span.mono', {}, 'http://localhost:8000'),
+                  ' und Google Drive lässt sich dort verbinden.'))),
+            el('div.mrow', {},
+              el('div.mrow-main', {},
+                el('div.mrow-title', {}, 'Dauerhaft ins Netz stellen'),
+                el('div.mrow-sub', {}, 'Über Cloudflare Pages – dann gilt die dortige Adresse. ' +
+                  'Beschrieben in CLOUD-EINRICHTEN.md.')))),
+          el('div.note-box', { style: { marginTop: '14px' } },
+            el('span.ico', { html: U.icon('info', 15) }),
+            el('div', {}, 'Deine Einrichtung bei Google bleibt gültig. Du musst dort nur noch die ' +
+              'neue Adresse als „Autorisierte JavaScript-Quelle“ ergänzen.'))),
+        footer: [el('div.spacer'), el('button.primary-btn', { text: 'Verstanden', onclick: () => m0.close() })],
+      });
+      return;
+    }
     const idInput = el('input', {
       type: 'text', value: UP.cloud.clientIdValue(),
       placeholder: '1234567890-abc….apps.googleusercontent.com',
@@ -263,6 +314,9 @@ UP.app = (function () {
 
   function driveErrorHint(err) {
     const d = String(err.detail || err.message || '');
+    if (err.blocked === 'sandbox') return 'Diese Ansicht darf keine fremden Server aufrufen. Starte den Planer auf dem PC mit „python start.py“ – dort funktioniert es.';
+    if (err.blocked === 'file') return 'Die Seite ist als Datei geöffnet. Starte sie mit „python start.py“, damit sie eine Adresse hat.';
+    if (/nicht erreichbar/i.test(d)) return 'Die Google-Anmeldung konnte nicht geladen werden. Besteht eine Internetverbindung, und blockt ein Werbefilter womöglich accounts.google.com?';
     if (/popup/i.test(d)) return 'Das Anmeldefenster wurde blockiert. Erlaube Pop-ups für diese Seite und versuche es erneut.';
     if (/redirect_uri|origin/i.test(d)) return `Google akzeptiert die Adresse ${location.origin} noch nicht. Trage sie in der Cloud Console unter „Autorisierte JavaScript-Quellen“ ein.`;
     if (/access_denied/i.test(d)) return 'Die Freigabe wurde abgelehnt – oder dein Konto steht noch nicht als Testnutzer auf dem Zustimmungsbildschirm.';
