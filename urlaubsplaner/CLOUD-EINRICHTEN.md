@@ -21,46 +21,61 @@ Google verlangt, dass sich jede Anwendung ausweist, die auf ein Drive zugreift.
 Diesen Ausweis stellst du dir selbst aus. Er ist kostenlos und **nicht geheim** –
 er darf offen im Quelltext stehen.
 
+> Google hat die Konsole 2025 umgebaut: Was früher unter „APIs und Dienste →
+> OAuth-Zustimmungsbildschirm“ lag, heißt jetzt **Google Auth-Plattform**. Viele
+> Anleitungen im Netz beschreiben noch die alte Oberfläche. Die Schritte unten
+> gelten für die neue. Da die Konsole zweisprachig genutzt wird, stehen die
+> englischen Bezeichnungen in Klammern.
+
 ### 1. Projekt anlegen
 
 1. [console.cloud.google.com](https://console.cloud.google.com) öffnen und mit
    dem Google-Konto anmelden, in dessen Drive der Plan liegen soll.
-2. Oben in der Kopfzeile auf die Projektauswahl klicken → **Neues Projekt**.
+2. Oben in der Kopfzeile auf die Projektauswahl klicken → **Neues Projekt**
+   (*New Project*).
 3. Name: `Urlaubsplaner`. **Erstellen**.
-4. Warten, bis das Projekt angelegt ist, und oben darauf umschalten.
+4. Warten, bis das Projekt angelegt ist, und oben darauf umschalten. Alles
+   Folgende passiert in diesem Projekt – bei Fehlern lohnt der Blick nach oben,
+   ob noch das richtige ausgewählt ist.
 
 ### 2. Drive-API einschalten
 
-1. Im Menü links: **APIs und Dienste** → **Bibliothek**.
+1. Im Menü links: **APIs und Dienste** → **Bibliothek** (*Library*).
 2. Nach `Google Drive API` suchen und darauf klicken.
-3. **Aktivieren**.
+3. **Aktivieren** (*Enable*).
 
 ### 3. Zustimmungsbildschirm einrichten
 
 Das ist die Seite, die Google später anzeigt, wenn du dem Planer den Zugriff
 erlaubst.
 
-1. **APIs und Dienste** → **OAuth-Zustimmungsbildschirm**.
-2. Nutzertyp **Extern** → **Erstellen**.
-3. Ausfüllen:
-   - App-Name: `Urlaubsplaner`
-   - Nutzersupport-E-Mail: deine Adresse
-   - Kontakt-E-Mail des Entwicklers: dieselbe Adresse
-4. **Speichern und fortfahren**.
-5. Bei **Bereiche** nichts eintragen – **Speichern und fortfahren**.
-6. Bei **Testnutzer** auf **Add users** und deine eigene Google-Adresse
-   eintragen. Ebenso die Adressen aller Kolleginnen und Kollegen, die den Planer
-   nutzen sollen. **Speichern und fortfahren**.
+1. Im Menü links **Google Auth-Plattform** (*Google Auth Platform*) öffnen.
+   Falls du sie nicht findest: oben in der Suche `Google Auth` eingeben.
+2. Beim ersten Mal erscheint **Jetzt starten** (*Get started*) – ein Assistent
+   mit vier Abschnitten auf einer Seite:
+   - **App-Informationen**: App-Name `Urlaubsplaner`, Nutzersupport-E-Mail deine
+     Adresse
+   - **Zielgruppe** (*Audience*): **Extern** (*External*)
+   - **Kontaktdaten**: deine E-Mail-Adresse
+   - Nutzungsbedingungen bestätigen → **Erstellen**
+3. Danach links auf **Zielgruppe** (*Audience*). Unten bei **Testnutzer**
+   (*Test users*) auf **Nutzer hinzufügen** und deine eigene Google-Adresse
+   eintragen – ebenso die Adressen aller Kolleginnen und Kollegen, die den
+   Planer nutzen sollen. **Speichern**.
+
+   Ohne diesen Schritt lehnt Google die Anmeldung mit „Zugriff verweigert“ ab.
 
 ### 4. Kennung erzeugen
 
-1. **APIs und Dienste** → **Anmeldedaten**.
-2. **Anmeldedaten erstellen** → **OAuth-Client-ID**.
-3. Anwendungstyp: **Webanwendung**.
-4. Name: `Urlaubsplaner Browser`.
-5. Bei **Autorisierte JavaScript-Quellen** auf **URI hinzufügen** und die
-   Adresse eintragen, unter der du den Planer öffnest. **Ohne Schrägstrich am
-   Ende, ohne Pfad.** Beispiele:
+1. In der **Google Auth-Plattform** links auf **Clients**, dann
+   **Client erstellen** (*Create client*).
+   *Der alte Weg über* **APIs und Dienste → Anmeldedaten → Anmeldedaten
+   erstellen → OAuth-Client-ID** *führt zum selben Ziel und existiert weiterhin.*
+2. Anwendungstyp (*Application type*): **Webanwendung** (*Web application*).
+3. Name: `Urlaubsplaner Browser`. Der Name ist nur für dich.
+4. Bei **Autorisierte JavaScript-Quellen** (*Authorized JavaScript origins*) auf
+   **URI hinzufügen** und die Adresse eintragen, unter der du den Planer
+   öffnest. **Ohne Schrägstrich am Ende, ohne Pfad.** Beispiele:
 
    | Wie du den Planer öffnest | Was hier eingetragen wird |
    |---|---|
@@ -71,23 +86,26 @@ erlaubst.
    | über Cloudflare Pages / GitHub Pages | `https://dein-name.pages.dev` |
 
    Mehrere Einträge sind erlaubt – trage ruhig alle ein, die du benutzt.
-   **Autorisierte Weiterleitungs-URIs** bleiben leer.
-6. **Erstellen**. Es erscheint ein Fenster mit der **Client-ID**. Sie sieht so
+   **Autorisierte Weiterleitungs-URIs** (*Authorized redirect URIs*) bleiben
+   leer; der Planer braucht sie nicht.
+5. **Erstellen**. Es erscheint ein Fenster mit der **Client-ID**. Sie sieht so
    aus:
 
    ```
    123456789012-a1b2c3d4e5f6g7h8.apps.googleusercontent.com
    ```
 
-   Diese Zeichenfolge kopieren.
+   Diese Zeichenfolge kopieren. Ein danebenstehendes **Client-Secret** brauchst
+   du nicht – der Planer läuft im Browser und verwendet keines.
 
 ### 5. Veröffentlichen (empfohlen)
 
 Solange das Projekt auf **Testing** steht, läuft der Zugang nach sieben Tagen ab
 und jedes Gerät muss sich neu anmelden. Das lässt sich abstellen:
 
-1. **APIs und Dienste** → **OAuth-Zustimmungsbildschirm**.
-2. **App veröffentlichen** → bestätigen.
+1. **Google Auth-Plattform** → **Zielgruppe** (*Audience*).
+2. Bei **Veröffentlichungsstatus** auf **App veröffentlichen**
+   (*Publish app*) → bestätigen.
 
 Eine Prüfung durch Google ist dafür **nicht** nötig. Der Planer nutzt
 ausschließlich den Bereich `drive.file`, und der gilt bei Google als nicht

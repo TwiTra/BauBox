@@ -203,17 +203,19 @@ UP.app = (function () {
             el('span', {}, 'Auf ', el('span.mono', {}, 'console.cloud.google.com'),
               ' anmelden und oben ein neues Projekt anlegen, z. B. „Urlaubsplaner“.')),
           step('2', 'Drive-API einschalten',
-            'Unter „APIs & Dienste“ → „Bibliothek“ nach „Google Drive API“ suchen und aktivieren.'),
+            'Unter „APIs und Dienste“ → „Bibliothek“ nach „Google Drive API“ suchen und aktivieren.'),
           step('3', 'Zustimmungsseite ausfüllen',
-            'Unter „APIs & Dienste“ → „OAuth-Zustimmungsbildschirm“ den Typ „Extern“ wählen, ' +
-            'Namen und deine E-Mail eintragen und dich selbst als Testnutzer hinzufügen.'),
+            'Menü „Google Auth-Plattform“ → „Jetzt starten“: App-Name, deine E-Mail und ' +
+            'Zielgruppe „Extern“. Danach unter „Zielgruppe“ dich selbst als Testnutzer eintragen – ' +
+            'ohne das lehnt Google die Anmeldung ab.'),
           step('4', 'Kennung erzeugen',
-            el('span', {}, 'Unter „Anmeldedaten“ → „Anmeldedaten erstellen“ → „OAuth-Client-ID“, ' +
-              'Typ „Webanwendung“. Bei „Autorisierte JavaScript-Quellen“ die Adresse eintragen, ' +
-              'unter der du den Planer öffnest – aktuell: ',
-              el('span.mono', { style: { color: 'var(--primary)' } }, location.origin), '.')),
+            el('span', {}, '„Google Auth-Plattform“ → „Clients“ → „Client erstellen“, Typ ' +
+              '„Webanwendung“. Bei „Autorisierte JavaScript-Quellen“ genau diese Adresse eintragen: ',
+              el('span.mono', { style: { color: 'var(--primary)' } }, location.origin),
+              ' – ohne Schrägstrich am Ende.')),
           step('5', 'Kennung hier einsetzen',
-            'Die erzeugte Client-ID unten einfügen und auf „Verbinden“ klicken.')),
+            'Die erzeugte Client-ID unten einfügen und auf „Verbinden“ klicken. Ein Client-Secret ' +
+            'wird nicht gebraucht.')),
 
         el('div.field', { style: { marginTop: '18px' } },
           el('label', {}, 'Client-ID'), idInput,
