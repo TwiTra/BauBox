@@ -72,14 +72,23 @@ UP.store = (function () {
   function emit(evt, payload) { (listeners[evt] || []).forEach(f => f(payload)); }
 
   /* ── Speichern / Laden ──────────────────────────────────────────────── */
-  const persist = U.debounce(() => {
+  function writeState() {
     try {
       localStorage.setItem(KEY, JSON.stringify(state));
     } catch (e) {
       console.warn('Speichern fehlgeschlagen', e);
       emit('storage-error', e);
     }
-  }, 250);
+  }
+
+  const persist = U.debounce(writeState, 250);
+
+  /**
+   * Schreibt sofort, ohne die übliche Verzögerung. Wird beim Verlassen der
+   * Seite aufgerufen – sonst könnte eine Änderung der letzten Sekundenbruchteile
+   * verloren gehen.
+   */
+  const flushPersist = () => writeState();
 
   function load() {
     let raw = null;
@@ -800,6 +809,6 @@ UP.store = (function () {
     addAbsence, updateAbsence, deleteAbsence, absencesOf,
     addClosure, deleteClosure,
     workdaysOf, quota, occupancy, absentOn, conflicts, conflictDaySet, previewImpact,
-    seedDemo, clearAll, exportJSON, importJSON, emptyYear, doc, replaceDoc,
+    seedDemo, clearAll, exportJSON, importJSON, emptyYear, doc, replaceDoc, flushPersist,
   };
 })();

@@ -46,6 +46,24 @@ Geräte übernehmen sie von selbst, und bei gleichzeitigen Änderungen wird
 zusammengeführt statt überschrieben. Ohne Verbindung wird im Browser
 weitergearbeitet und später nachgetragen.
 
+### Wann gespeichert wird
+
+Es gibt keinen Speichern-Knopf, und es braucht auch keinen:
+
+| Auslöser | Was passiert |
+|---|---|
+| kurz nach jeder Eingabe | Änderung geht raus (etwa eine Dreiviertelsekunde nach dem letzten Tastendruck) |
+| Tab wegschalten oder Fenster verkleinern | sofortiges Speichern, ohne auf den Zeitgeber zu warten |
+| Tab oder Browser schließen | ebenso; zusätzlich wird der Browser-Speicher unverzüglich geschrieben |
+| Verbindung kehrt zurück | Wartendes wird nachgetragen |
+| beim nächsten Öffnen | alles, was offen geblieben ist, geht automatisch hinaus |
+
+Sollte beim Schließen wirklich noch etwas offen sein – etwa weil die Verbindung
+gerade weg ist – fragt der Browser nach, ob du die Seite verlassen willst.
+Verloren geht dabei nichts: Der Stand liegt im Browser und wird beim nächsten
+Öffnen hochgeladen. Die Anzeige oben rechts sagt jederzeit, woran man ist:
+**Gespeichert**, **Speichert…** oder **Offline**.
+
 ## Was der Planer kann
 
 ### Überschneidungen erkennen

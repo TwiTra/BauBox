@@ -350,12 +350,50 @@ UP.sync = (function () {
 
   function wire() {
     S.on('change', payload => { if (!payload || !payload.remote) schedulePush(); });
+
+    /* Beim Wegschalten oder Schließen des Tabs wird nicht auf den Zeitgeber
+       gewartet, sondern sofort gespeichert. Browser lösen „hidden“ aus, bevor
+       die Seite abgebaut wird – in dieser Phase bleibt genug Zeit für den
+       vollständigen, konfliktsicheren Ablauf. */
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') { flush(); pullNow(); }
-      else flush(true);
+      else leaving();
     });
+    window.addEventListener('pagehide', leaving);
     window.addEventListener('online', () => { backoff = 1000; pullNow(); flush(); });
-    window.addEventListener('pagehide', () => flush(true));
+
+    /* Letzte Rückversicherung: Ist beim Schließen wirklich noch etwas offen –
+       etwa weil die Verbindung steht oder der Upload nicht mehr durchkam –
+       fragt der Browser nach. Verloren ist dabei nichts: Der Stand liegt im
+       Browser-Speicher und geht beim nächsten Öffnen automatisch hinaus. */
+    window.addEventListener('beforeunload', e => {
+      S.flushPersist();
+      if (!saveNow()) return;
+      e.preventDefault();
+      e.returnValue = '';
+    });
+  }
+
+  /** Gibt es Änderungen, die der Speicherort noch nicht hat? */
+  const hasUnsaved = () => !!transport && (!lastSynced || ser(S.doc()) !== ser(lastSynced));
+
+  /** Seite wird verlassen: Browser-Speicher sofort schreiben und hochladen. */
+  function leaving() {
+    S.flushPersist();
+    saveNow();
+  }
+
+  /**
+   * Schickt Wartendes unverzüglich los – anders als `flush()` auch dann, wenn
+   * gerade kein Zeitgeber läuft.
+   * @returns {boolean} true, wenn tatsächlich etwas offen war
+   */
+  function saveNow(keepalive = true) {
+    if (!transport || stopped) return false;
+    clearTimeout(pushTimer); pushTimer = null;
+    if (!hasUnsaved()) return false;
+    enqueue(() => doPush(true, keepalive));
+    return true;
   }
 
   /** Erster Abgleich nach dem Laden: Stand holen und zusammenführen. */
@@ -545,7 +583,7 @@ UP.sync = (function () {
 
   return {
     init, onStatus, history, restore, info, logout,
-    pullNow, flush, useStorage, readPref,
+    pullNow, flush, saveNow, hasUnsaved, useStorage, readPref,
     push: () => enqueue(() => doPush(true)),
     AuthError,
     get transport() { return transport; },

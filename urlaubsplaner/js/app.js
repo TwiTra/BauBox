@@ -42,6 +42,15 @@ UP.app = (function () {
 
     render();
 
+    // Beim Verlassen der Seite den Browser-Speicher sofort schreiben – auch
+    // ohne Abgleich, denn sonst könnte die letzte Änderung im Verzögerungs-
+    // fenster hängen bleiben.
+    const writeNow = () => S.flushPersist();
+    window.addEventListener('pagehide', writeNow);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') writeNow();
+    });
+
     // Abgleich mit dem Server, falls einer läuft. Ohne Server bleibt alles
     // wie bisher rein im Browser.
     $('#syncChip').onclick = openSyncPanel;
@@ -1606,7 +1615,8 @@ UP.app = (function () {
           tip('2', 'Personen zuordnen', 'In der Team-Ansicht lassen sich Personenkarten per Drag & Drop zwischen Abteilungen ziehen. In der Jahresansicht funktioniert das ebenfalls: Namen links anfassen und auf eine andere Abteilung ziehen.'),
           tip('3', 'Urlaub eintragen', 'In der Jahres- oder Monatsansicht einfach in der Zeile der Person über den gewünschten Zeitraum ziehen. Balken lassen sich verschieben, an den Rändern verlängern und per Klick bearbeiten.'),
           tip('4', 'Überschneidungen prüfen', 'Die Zahl im Reiter „Überschneidungen“ zeigt, an wie vielen Zeiträumen zu viele Leute gleichzeitig weg wären. Schon beim Eintragen warnt der Planer, bevor gespeichert wird.'),
-          tip('5', 'Jahre archivieren', 'Über die Jahreszahl oben links lassen sich Jahre wechseln und neue anlegen – wahlweise mit dem Team des Vorjahres und dem Resturlaub als Übertrag. Alte Jahre bleiben dauerhaft einsehbar.')),
+          tip('5', 'Jahre archivieren', 'Über die Jahreszahl oben links lassen sich Jahre wechseln und neue anlegen – wahlweise mit dem Team des Vorjahres und dem Resturlaub als Übertrag. Alte Jahre bleiben dauerhaft einsehbar.'),
+          tip('6', 'Speichern passiert von selbst', 'Es gibt keinen Speichern-Knopf. Gesichert wird kurz nach jeder Eingabe, beim Wegschalten des Tabs, beim Schließen und beim nächsten Öffnen für alles, was offen blieb. Die Anzeige oben rechts sagt, woran du bist.')),
 
         el('div.sec-title', { style: { marginTop: '20px' } }, 'Tastenkürzel'),
         el('div.mlist', {},

@@ -204,6 +204,16 @@ Der Planer fragt Drive alle acht Sekunden, ob sich etwas getan hat – bei
 ausgeblendetem Tab seltener. Beim eigenen Server geht es schneller, weil der
 von sich aus Bescheid geben kann.
 
+### Wann wird gespeichert?
+
+Automatisch, ohne Zutun: kurz nach jeder Eingabe, beim Wegschalten des Tabs,
+beim Schließen des Tabs oder Browsers, sobald eine unterbrochene Verbindung
+zurückkehrt, und beim nächsten Öffnen für alles, was offen geblieben ist.
+
+Ist beim Schließen tatsächlich noch etwas unterwegs, fragt der Browser nach.
+Verloren geht dabei nichts – der Stand liegt im Browser und wird beim nächsten
+Start hochgeladen.
+
 ### Ohne Internet
 
 Änderungen bleiben im Browser und gehen automatisch raus, sobald wieder eine
