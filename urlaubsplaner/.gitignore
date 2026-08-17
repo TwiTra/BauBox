@@ -1,0 +1,7 @@
+# Vom Server angelegt – enthält den Plan, die Passwort-Prüfsumme und den
+# Sitzungsschlüssel. Gehört nicht in die Versionsverwaltung.
+data/
+
+# Python
+__pycache__/
+*.pyc

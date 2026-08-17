@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Urlaubsplaner</title>
+<link rel="stylesheet" href="css/app.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏖️</text></svg>">
+</head>
+<body>
+
+<!-- ══ Kopfleiste ═══════════════════════════════════════════════════════ -->
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="4" width="18" height="17" rx="3"></rect>
+        <path d="M3 9h18M8 2v4M16 2v4"></path>
+        <path d="M8 14h3M13.5 14h2.5M8 17.5h5"></path>
+      </svg>
+    </span>
+    <span class="brand-text">Urlaubs<b>planer</b></span>
+  </div>
+
+  <div class="year-switch" role="group" aria-label="Jahr wechseln">
+    <button class="ghost-btn icon" id="yearPrev" title="Vorheriges Jahr (←)" aria-label="Vorheriges Jahr">‹</button>
+    <button class="year-pill" id="yearPill" aria-haspopup="menu">
+      <span id="yearLabel">2026</span>
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+    </button>
+    <button class="ghost-btn icon" id="yearNext" title="Nächstes Jahr (→)" aria-label="Nächstes Jahr">›</button>
+  </div>
+
+  <nav class="viewtabs" id="viewTabs" role="tablist" aria-label="Ansicht">
+    <button class="viewtab" data-view="jahr"      role="tab">Jahr</button>
+    <button class="viewtab" data-view="monat"     role="tab">Monat</button>
+    <button class="viewtab" data-view="konflikte" role="tab">Überschneidungen<span class="tab-badge" id="conflictBadge" hidden>0</span></button>
+    <button class="viewtab" data-view="team"      role="tab">Team</button>
+    <button class="viewtab" data-view="statistik" role="tab">Statistik</button>
+  </nav>
+
+  <div class="topbar-actions">
+    <button class="sync-chip" id="syncChip" hidden aria-live="polite">
+      <span class="sync-dot"></span>
+      <span class="sync-text">Verbinden…</span>
+    </button>
+    <div class="search-box">
+      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input type="search" id="search" placeholder="Person suchen…" autocomplete="off" aria-label="Person suchen">
+    </div>
+    <button class="primary-btn" id="btnAdd" title="Neue Abwesenheit (N)">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      <span>Abwesenheit</span>
+    </button>
+    <button class="ghost-btn icon" id="btnUndo" title="Rückgängig (Strg+Z)" aria-label="Rückgängig">
+      <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg>
+    </button>
+    <button class="ghost-btn icon" id="btnRedo" title="Wiederherstellen (Strg+Umschalt+Z)" aria-label="Wiederherstellen">
+      <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14l5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/></svg>
+    </button>
+    <button class="ghost-btn icon" id="btnTheme" title="Design wechseln" aria-label="Design wechseln">
+      <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+    </button>
+    <button class="ghost-btn icon" id="btnMenu" title="Menü" aria-label="Menü" aria-haspopup="menu">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+  </div>
+</header>
+
+<!-- ══ Werkzeugleiste ═══════════════════════════════════════════════════ -->
+<div class="toolbar" id="toolbar"></div>
+
+<!-- ══ Inhalt ═══════════════════════════════════════════════════════════ -->
+<main id="viewHost" class="view-host" tabindex="-1"></main>
+
+<!-- ══ Overlays ═════════════════════════════════════════════════════════ -->
+<!-- Dialoge und Menüs werden bei Bedarf erzeugt (siehe js/app.js) -->
+<div class="toast-host" id="toastHost" aria-live="polite"></div>
+<div class="hovercard" id="hovercard" hidden></div>
+
+<script src="js/utils.js"></script>
+<script src="js/holidays.js"></script>
+<script src="js/store.js"></script>
+<script src="js/dnd.js"></script>
+<script src="js/timeline.js"></script>
+<script src="js/month.js"></script>
+<script src="js/conflicts.js"></script>
+<script src="js/board.js"></script>
+<script src="js/stats.js"></script>
+<script src="js/config.js"></script>
+<script src="js/sync.js"></script>
+<script src="js/cloud.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
