@@ -83,7 +83,8 @@ erlaubst.
    | lokal mit `python server.py` | `http://localhost:8000` |
    | im Heimnetz über die IP | `http://192.168.1.42:8000` |
    | über einen Cloudflare-Tunnel | `https://deine-adresse.trycloudflare.com` |
-   | über Cloudflare Pages / GitHub Pages | `https://dein-name.pages.dev` |
+   | über GitHub Pages | `https://dein-name.github.io` |
+   | über Cloudflare Pages | `https://dein-name.pages.dev` |
 
    Mehrere Einträge sind erlaubt – trage ruhig alle ein, die du benutzt.
    **Autorisierte Weiterleitungs-URIs** (*Authorized redirect URIs*) bleiben
@@ -174,15 +175,17 @@ Der kürzeste Weg, wenn das Repository ohnehin auf GitHub liegt und öffentlich
 ist. Pages liefert den kompletten Branch aus, Unterordner eingeschlossen.
 
 1. Im Repository auf **Settings** → links **Pages**.
-2. Unter **Build and deployment** → **Source**: `GitHub Actions`.
-3. Fertig – der mitgelieferte Workflow `.github/workflows/pages.yml`
-   veröffentlicht ab jetzt bei jeder Änderung an `main` von selbst. Beim
-   ersten Mal lässt er sich unter **Actions** → *GitHub Pages* → **Run
-   workflow** auch von Hand anstoßen.
+2. Unter **Build and deployment** → **Source**: `Deploy from a branch`.
+3. **Branch**: `main`, Ordner `/ (root)` → **Save**.
 
-   > Dieser eine Klick lässt sich nicht automatisieren: Das Token eines
-   > Workflows darf die Pages-Seite nicht anlegen, sondern nur auf eine
+   > Dieser Schritt lässt sich nicht automatisieren: Das Token eines
+   > Workflows darf eine Pages-Seite nicht anlegen, sondern nur auf eine
    > bereits eingeschaltete veröffentlichen.
+
+   Ab jetzt veröffentlicht GitHub bei jeder Änderung an `main` von selbst;
+   den Fortschritt zeigt der Lauf *pages build and deployment* unter
+   **Actions**. Die leere Datei `.nojekyll` im Wurzelverzeichnis sorgt
+   dafür, dass die Dateien unverändert ausgeliefert werden.
 
 4. Nach ein bis zwei Minuten ist der Planer erreichbar unter:
 

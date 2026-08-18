@@ -43,7 +43,8 @@ Drive. Alle Geräte greifen darauf zu, ein Dauerbetrieb des PCs entfällt.
 
 Damit der Planer dabei auch unterwegs erreichbar ist, ohne dass der PC läuft,
 gehört die Seite selbst unter eine feste Adresse – etwa über GitHub Pages
-(`Settings` → `Pages` → Source: `GitHub Actions`). Der Planer liegt
+(`Settings` → `Pages` → Source: `Deploy from a branch`, Branch `main`,
+Ordner `/ (root)`). Der Planer liegt
 dann unter `https://<benutzername>.github.io/<repository>/urlaubsplaner/`.
 Diese Adresse muss bei Google unter **Autorisierte JavaScript-Quellen**
 stehen – nicht unter Weiterleitungs-URIs.
