@@ -41,6 +41,18 @@ erreichbar. Nichts verlässt das Haus.
 Drive. Alle Geräte greifen darauf zu, ein Dauerbetrieb des PCs entfällt.
 ➡ [CLOUD-EINRICHTEN.md](CLOUD-EINRICHTEN.md)
 
+Damit der Planer dabei auch unterwegs erreichbar ist, ohne dass der PC läuft,
+gehört die Seite selbst unter eine feste Adresse – etwa über GitHub Pages
+(`Settings` → `Pages` → Branch `main`, Ordner `/ (root)`). Der Planer liegt
+dann unter `https://<benutzername>.github.io/<repository>/urlaubsplaner/`.
+Diese Adresse muss bei Google unter **Autorisierte JavaScript-Quellen**
+stehen – nicht unter Weiterleitungs-URIs.
+
+> In einer eingebetteten Vorschau (etwa einer veröffentlichten Seite in einer
+> Chat-Oberfläche) lässt sich Google Drive **nicht** einrichten: Dort läuft die
+> Seite in einem abgeschotteten Rahmen, der keine Anfragen an Google stellen
+> darf. Der Planer erkennt das und sagt es im Speicherort-Dialog.
+
 In beiden Fällen gilt: Jede Änderung wird automatisch gespeichert, andere
 Geräte übernehmen sie von selbst, und bei gleichzeitigen Änderungen wird
 zusammengeführt statt überschrieben. Ohne Verbindung wird im Browser

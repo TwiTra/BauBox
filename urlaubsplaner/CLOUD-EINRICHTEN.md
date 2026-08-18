@@ -168,12 +168,40 @@ deinem Drive.
 5. Die entstandene Adresse (`https://…​.pages.dev`) in der Google Cloud Console
    unter **Autorisierte JavaScript-Quellen** ergänzen.
 
-### GitHub Pages
+### GitHub Pages (kostenlos, nur für öffentliche Repos)
 
-Bei **Settings** → **Pages** als Quelle den Branch wählen. GitHub Pages liefert
-nur aus dem Wurzelverzeichnis oder aus `/docs` aus – für den Unterordner
-`urlaubsplaner/` braucht es also einen Workflow oder eine Kopie im Wurzel-
-verzeichnis. Cloudflare Pages ist hier der kürzere Weg.
+Der kürzeste Weg, wenn das Repository ohnehin auf GitHub liegt und öffentlich
+ist. Pages liefert den kompletten Branch aus, Unterordner eingeschlossen.
+
+1. Im Repository auf **Settings** → links **Pages**.
+2. Unter **Build and deployment** → **Source**: `Deploy from a branch`.
+3. **Branch**: `main`, Ordner `/ (root)` → **Save**.
+4. Nach ein bis zwei Minuten ist der Planer erreichbar unter:
+
+   ```
+   https://<benutzername>.github.io/<repository>/urlaubsplaner/
+   ```
+
+   Die Datei `index.html` im Wurzelverzeichnis leitet dorthin weiter, sodass
+   auch die kurze Adresse ohne `/urlaubsplaner/` funktioniert.
+5. In der Google Cloud Console unter **Autorisierte JavaScript-Quellen**
+   eintragen – **nur Schema und Host, ohne Pfad**:
+
+   ```
+   https://<benutzername>.github.io
+   ```
+
+> **Achtung, häufige Verwechslung.** Die Adresse gehört unter *Autorisierte
+> JavaScript-Quellen*, **nicht** unter *Autorisierte Weiterleitungs-URIs*. Der
+> Planer meldet sich über den Token-Client an, der keine Weiterleitung benutzt.
+> Ein Eintrag bei den Weiterleitungs-URIs bleibt wirkungslos.
+
+Bei einem öffentlichen Repository liegt die Client-ID in `js/config.js` offen –
+das ist vorgesehen. Wer sie hat, kommt damit an keine Daten: Google lässt die
+Anmeldung nur von den eingetragenen Adressen zu, fragt das Google-Konto des
+Nutzers und gibt über `drive.file` nur die Datei frei, die die Anwendung selbst
+angelegt hat. Solange der Zustimmungsbildschirm im Testbetrieb läuft, kommen
+ohnehin nur die eingetragenen Testnutzer hinein.
 
 ### Ohne Hosting
 
@@ -269,6 +297,19 @@ Reihe nach prüfen:
 3. **Kein Schrägstrich am Ende**, kein Pfad. Richtig ist
    `http://localhost:8000`, falsch sind `http://localhost:8000/` und
    `http://localhost:8000/index.html`.
+
+4. **Steht die Adresse im richtigen Feld?** Der Client hat zwei Listen. Der
+   Planer benutzt ausschließlich **Autorisierte JavaScript-Quellen**. Ein
+   Eintrag unter *Autorisierte Weiterleitungs-URIs* ändert nichts – der
+   Token-Client leitet nicht weiter, er öffnet ein Fenster. Wer die Adresse
+   dort einträgt, sucht den Fehler oft lange an der falschen Stelle.
+
+5. **Ist es überhaupt die Adresse, unter der der Planer läuft?** Bei einer
+   eingebetteten Vorschau – etwa einer veröffentlichten Seite in einer
+   Chat-Oberfläche – läuft die Seite in einem abgeschotteten Rahmen unter
+   einer fremden Adresse, die keine Anfragen an Google stellen darf. Dort
+   lässt sich Drive grundsätzlich nicht einrichten; der Planer sagt das im
+   Speicherort-Dialog auch. Nötig ist eine eigene Adresse, siehe Teil 3.
 
 4. **Wurde gespeichert?** Nach dem Eintragen unten auf **Speichern**. Ohne das
    ist nichts übernommen.
