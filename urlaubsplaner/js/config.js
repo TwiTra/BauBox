@@ -16,7 +16,14 @@ window.UP_CONFIG = {
 
   // Die „Client-ID“ aus der Google Cloud Console. Sieht aus wie:
   // '1234567890-abcdefghijklmnop.apps.googleusercontent.com'
-  googleClientId: '',
+  //
+  // Sie steht hier offen und darf das auch: Wer sie hat, kommt damit an keine
+  // Daten. Google lässt die Anmeldung nur von den Adressen zu, die in der
+  // Konsole eingetragen sind, fragt vorher das Google-Konto des Nutzers und
+  // gibt der Anwendung mit „drive.file“ ohnehin nur die Datei frei, die sie
+  // selbst angelegt hat. Ein fremdes Konto bekäme also höchstens einen
+  // eigenen, leeren Plan im eigenen Drive.
+  googleClientId: '551536265948-341q43svao7m3im7seg2hkha55kbhk12.apps.googleusercontent.com',
 
   // Name der Datei, die im Drive angelegt wird.
   driveFileName: 'Urlaubsplaner.json',
