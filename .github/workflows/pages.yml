@@ -1,8 +1,11 @@
 # Veröffentlicht den Planer über GitHub Pages.
 #
-# Der Workflow schaltet Pages beim ersten Lauf selbst ein (`enablement: true`),
-# sodass dafür kein Klick in den Einstellungen nötig ist, und lädt danach den
-# Inhalt des Repositorys hoch. Der Planer ist damit erreichbar unter
+# EINMALIG NÖTIG: Settings → Pages → Build and deployment → Source auf
+# „GitHub Actions“ stellen. Das Token eines Workflows darf die Pages-Seite
+# nicht selbst anlegen („Resource not accessible by integration“), nur auf
+# eine bereits eingeschaltete veröffentlichen. Danach läuft alles von allein.
+#
+# Der Planer ist dann erreichbar unter
 #   https://<benutzername>.github.io/<repository>/urlaubsplaner/
 # und über die Weiterleitung im Wurzelverzeichnis auch ohne den Unterordner.
 
@@ -35,8 +38,6 @@ jobs:
 
       - name: Pages einrichten
         uses: actions/configure-pages@v5
-        with:
-          enablement: true
 
       - name: Dateien hochladen
         uses: actions/upload-pages-artifact@v3
