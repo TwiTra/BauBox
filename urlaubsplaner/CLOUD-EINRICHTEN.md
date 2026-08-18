@@ -174,8 +174,16 @@ Der kürzeste Weg, wenn das Repository ohnehin auf GitHub liegt und öffentlich
 ist. Pages liefert den kompletten Branch aus, Unterordner eingeschlossen.
 
 1. Im Repository auf **Settings** → links **Pages**.
-2. Unter **Build and deployment** → **Source**: `Deploy from a branch`.
-3. **Branch**: `main`, Ordner `/ (root)` → **Save**.
+2. Unter **Build and deployment** → **Source**: `GitHub Actions`.
+3. Fertig – der mitgelieferte Workflow `.github/workflows/pages.yml`
+   veröffentlicht ab jetzt bei jeder Änderung an `main` von selbst. Beim
+   ersten Mal lässt er sich unter **Actions** → *GitHub Pages* → **Run
+   workflow** auch von Hand anstoßen.
+
+   > Dieser eine Klick lässt sich nicht automatisieren: Das Token eines
+   > Workflows darf die Pages-Seite nicht anlegen, sondern nur auf eine
+   > bereits eingeschaltete veröffentlichen.
+
 4. Nach ein bis zwei Minuten ist der Planer erreichbar unter:
 
    ```
