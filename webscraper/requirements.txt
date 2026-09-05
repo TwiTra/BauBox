@@ -1,0 +1,24 @@
+# ScrapeStudio - Abhängigkeiten
+#
+# Installieren:  pip install -r requirements.txt
+# Unter Linux zusätzlich:  sudo apt install python3-tk
+
+# --- Pflicht ---------------------------------------------------------
+customtkinter>=5.2.0        # moderne Oberfläche auf Tkinter-Basis
+requests>=2.31.0            # HTTP-Abrufe
+beautifulsoup4>=4.12.0      # HTML auswerten
+lxml>=4.9.0                 # schneller Parser für BeautifulSoup
+
+# --- Agenten-Team (optional) -----------------------------------------
+# Ohne dieses Paket laufen Presets und eigene Selektoren uneingeschränkt;
+# nur der Modus "KI-Agenten" ist dann gesperrt.
+anthropic>=0.40.0
+
+# --- Export-Formate (optional) ---------------------------------------
+# Fehlt eines, meldet das Programm das im Export-Menü und alle anderen
+# Formate funktionieren weiter.
+openpyxl>=3.1.0             # Excel (.xlsx)
+reportlab>=4.0.0            # PDF-Bericht
+
+# --- Nur zum Erzeugen der EXE ----------------------------------------
+# pyinstaller>=6.0.0
