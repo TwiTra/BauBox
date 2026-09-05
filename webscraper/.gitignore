@@ -1,0 +1,16 @@
+# Bau-Ergebnisse
+build/
+dist/
+*.spec
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Nie einchecken: lokale Zugangsdaten und Daten
+credentials.json
+settings.json
+*.db
+exports/
