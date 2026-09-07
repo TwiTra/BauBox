@@ -1,0 +1,181 @@
+# PAX - Beispielkonfiguration
+#
+# Kopieren nach config/config.yaml und anpassen:
+#     python main.py init          legt die Datei mit diesen Werten an
+#
+# ZUGANGSDATEN GEHÖREN NICHT IN DIESE DATEI.
+# Stattdessen als Umgebungsvariablen setzen - sie haben Vorrang:
+#     MT5_LOGIN, MT5_PASSWORD, MT5_SERVER, MT5_PATH
+#
+# Die zwei wichtigsten Werte stehen unter "risk":
+#   risk_per_trade      Anteil des Kontos, der je Trade im Feuer steht
+#   max_drawdown_stop   ab diesem Rückgang schaltet das System sich ab
+#
+# execution.dry_run steht auf true. In dieser Stellung werden keine echten
+# Orders gesendet. Erst nach einem bestandenen Vorwärtstest umstellen.
+
+terminal:
+  path: ''
+  login: 0
+  password: ''
+  server: ''
+  timeout_ms: 60000
+  portable: false
+data:
+  symbols:
+  - EURUSD
+  - GBPUSD
+  - XAUUSD
+  timeframes:
+    kurzfristig: M15
+    mittelfristig: H1
+    langfristig: H4
+  context_timeframe: D1
+  history_bars: 20000
+  warmup_bars: 400
+  cache_dir: data_cache
+  max_bar_age_seconds: 90
+features:
+  swing_lookback: 3
+  swing_atr_filter: 0.5
+  atr_period: 14
+  ema_periods:
+  - 8
+  - 21
+  - 50
+  - 200
+  rsi_period: 14
+  adx_period: 14
+  bb_period: 20
+  bb_std: 2.0
+  donchian_period: 20
+  volume_profile_bins: 48
+  volume_profile_lookback: 240
+  level_cluster_atr: 0.35
+  max_zones: 12
+  zone_max_age_bars: 300
+  fvg_min_atr: 0.15
+  ob_lookback: 40
+  regime_lookback: 250
+  hurst_window: 120
+  include_indicators: true
+  include_smc: true
+  include_patterns: true
+  include_levels: true
+labels:
+  tp_atr: 2.0
+  sl_atr: 1.0
+  max_horizon_bars: 48
+  min_return_atr: 0.25
+  use_meta_labeling: true
+  sample_weight_decay: 0.5
+  apply_uniqueness_weights: true
+model:
+  members:
+  - hist_gradient_boosting
+  - random_forest
+  - extra_trees
+  - logistic
+  - lightgbm
+  - xgboost
+  - catboost
+  - mlp
+  blend: stacking
+  calibration: isotonic
+  n_splits: 6
+  embargo_frac: 0.01
+  min_train_samples: 400
+  max_features: 120
+  feature_selection: true
+  random_state: 42
+  n_jobs: -1
+  prob_clip: 0.02
+  min_member_auc: 0.51
+  hyperparameter_search: false
+  search_trials: 30
+risk:
+  risk_per_trade: 0.005
+  max_risk_per_trade: 0.02
+  use_kelly: true
+  kelly_fraction: 0.25
+  max_open_positions: 3
+  max_positions_per_symbol: 1
+  max_daily_loss: 0.03
+  max_weekly_loss: 0.06
+  max_drawdown_stop: 0.15
+  max_correlated_risk: 0.02
+  correlation_threshold: 0.7
+  min_risk_reward: 1.4
+  min_signal_score: 0.45
+  min_stop_atr: 0.6
+  max_stop_atr: 3.5
+  break_even_at_r: 1.0
+  break_even_offset_r: 0.1
+  trail_start_r: 1.5
+  trail_atr: 2.0
+  partial_take_r:
+  - 1.0
+  - 2.0
+  partial_fractions:
+  - 0.4
+  - 0.3
+  max_spread_atr: 0.25
+  max_hold_bars_factor: 1.5
+sessions:
+  trade_sessions:
+  - - 07:00
+    - '11:00'
+  - - '12:30'
+    - '16:30'
+  trade_weekdays:
+  - 0
+  - 1
+  - 2
+  - 3
+  - 4
+  avoid_first_minutes_of_day: 0
+  friday_close_hour_utc: 20
+  news_file: config/news.csv
+  news_block_minutes_before: 15
+  news_block_minutes_after: 15
+  news_min_impact: high
+execution:
+  magic: 770425
+  deviation_points: 20
+  comment: PAX
+  filling: auto
+  dry_run: true
+  retry_attempts: 3
+  retry_delay_seconds: 1.0
+  close_partial_min_volume: 0.01
+backtest:
+  initial_balance: 10000.0
+  spread_points: 12.0
+  commission_per_lot: 7.0
+  slippage_points: 3.0
+  swap_long_points: -0.8
+  swap_short_points: -0.2
+  use_symbol_spec_costs: true
+  intrabar_worst_case: true
+  allow_shorts: true
+  allow_longs: true
+learning:
+  journal_path: runtime/journal.sqlite
+  model_dir: runtime/models
+  retrain_every_trades: 25
+  retrain_every_hours: 24
+  min_trades_for_feedback: 40
+  challenger_min_improvement: 0.02
+  challenger_min_trades: 150
+  drift_psi_threshold: 0.25
+  drift_check_every_bars: 500
+  blocklist_min_trades: 15
+  blocklist_max_expectancy: -0.15
+  keep_model_versions: 10
+  walk_forward_folds: 5
+logging:
+  level: INFO
+  file: runtime/pax.log
+  max_bytes: 5000000
+  backups: 5
+  console: true

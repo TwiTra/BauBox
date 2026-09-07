@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Laufzeitdaten - gehören nie ins Repository
+runtime/
+data_cache/
+config/config.yaml
+config/news.csv
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.log
