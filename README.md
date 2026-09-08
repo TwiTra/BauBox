@@ -26,3 +26,20 @@ Der Plan kann an drei Orten liegen, umschaltbar im Menü:
 
 In beiden Mehrgeräte-Varianten wird automatisch gespeichert, live verteilt und
 bei gleichzeitigen Änderungen zusammengeführt statt überschrieben.
+
+## Handelssystem (PAX)
+
+Eigenständiges Price-Action-Handelssystem für MetaTrader 5. Liest die
+Marktstruktur auf drei Zeithorizonten, kombiniert mehrere KI-Modelle zu einer
+kalibrierten Wahrscheinlichkeit, verwaltet das Risiko und lernt aus jedem
+abgeschlossenen Trade dazu.
+
+➡ **[Zum Handelssystem](tradingbot/README.md)**
+
+```bash
+cd tradingbot
+python main.py selftest     # interne Prüfungen, allen voran auf Lookahead
+python main.py backtest     # Strategie auf der Historie
+```
+
+Unter Windows genügt ein Doppelklick auf `tradingbot/start.bat`.

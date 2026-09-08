@@ -1,0 +1,8 @@
+# Optionale Ensemble-Mitglieder. Jedes fehlende Paket wird beim Training
+# stillschweigend übersprungen - das System läuft auch ohne sie.
+lightgbm>=4.0
+xgboost>=2.0
+catboost>=1.2
+
+# Tests
+pytest>=7.4
