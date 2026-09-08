@@ -116,7 +116,7 @@ class RiskManager:
             + timedelta(days=1)
         )
         self.state.halt_reason = reason
-        log.warning("Handel ausgesetzt bis %s: %s", self.state.halted_until, reason)
+        log.warning("Handel ausgesetzt: %s (%s)", reason, _halt_until(self.state.halted_until))
 
     # ------------------------------------------------------------------ #
     # Notbremsen
@@ -130,7 +130,10 @@ class RiskManager:
         blockers: list[str] = []
 
         if self.state.halted_until and now < self.state.halted_until:
-            blockers.append(f"Handelssperre aktiv bis {self.state.halted_until:%d.%m. %H:%M} ({self.state.halt_reason})")
+            blockers.append(
+                f"Handelssperre aktiv ({self.state.halt_reason}; "
+                f"{_halt_until(self.state.halted_until)})"
+            )
 
         base_day = self.state.day_start_balance or account.balance
         if base_day > 0 and self.state.daily_pnl < -cfg.max_daily_loss * base_day:
@@ -319,6 +322,20 @@ class RiskManager:
     def set_correlations(self, matrix: "dict[tuple[str, str], float]") -> None:
         """Gemessene Korrelationen hinterlegen - besser als jede Schätzung."""
         self.correlations = dict(matrix)
+
+
+def _halt_until(until: "datetime | None") -> str:
+    """Sperrfrist lesbar machen.
+
+    Eine dauerhafte Sperre wird intern mit `datetime.max` hinterlegt. Formatiert
+    ergab das die verwirrende Angabe "bis 31.12. 23:59" - das liest sich wie
+    Jahresende, gemeint ist aber das Jahr 9999, also: nie wieder ohne Neustart.
+    """
+    if until is None:
+        return "unbefristet"
+    if until.year >= 9999:
+        return "dauerhaft - nur ein Neustart hebt sie auf"
+    return f"bis {until:%d.%m.%Y %H:%M} UTC"
 
 
 def _guess_correlation(a: str, b: str) -> float:
