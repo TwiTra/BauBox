@@ -117,7 +117,7 @@ class RuleEngine:
         labels = []
         for prefix in [""] + prefixes:
             key = f"{prefix}struct_trend"
-            if key in row.index and np.isfinite(row[key]):
+            if key in row and np.isfinite(row[key]):
                 trends.append(float(row[key]))
                 labels.append(prefix.rstrip("_").upper() or "Basis")
         if not trends:
@@ -176,7 +176,7 @@ class RuleEngine:
         """
         pos = row.get("premium_discount", np.nan)
         higher_key = next(
-            (f"{p}premium_discount" for p in reversed(prefixes) if f"{p}premium_discount" in row.index),
+            (f"{p}premium_discount" for p in reversed(prefixes) if f"{p}premium_discount" in row),
             None,
         )
         higher_pos = row.get(higher_key, np.nan) if higher_key else np.nan
@@ -346,9 +346,12 @@ def _detect_prefixes(row: pd.Series) -> list[str]:
     from ..types import Timeframe
 
     known = {tf.value.lower() for tf in Timeframe}
+    # Series wie einfache Abbildungen zulassen - die Massenauswertung reicht
+    # Wörterbücher durch, weil pandas-Zeilenzugriff dafür zu langsam ist.
+    namen = row.index if hasattr(row, "index") else row.keys()
     prefixes = {
         f"{name.split('_', 1)[0]}_"
-        for name in row.index
+        for name in namen
         if "_" in name and name.split("_", 1)[0] in known
     }
     order = {"m": 0, "h": 1, "d": 2, "w": 3}

@@ -30,9 +30,9 @@ import pandas as pd
 
 from ..config import Config
 from ..features.builder import FeatureSet
-from ..labeling import direction_labels, sample_weights
+from ..labeling import build_labels, sample_weights
 from ..models.ensemble import ModelEnsemble
-from ..strategy.signal_engine import SignalEngine
+from ..strategy.signal_engine import ModelProfile, SignalEngine, skill_from_auc
 from ..types import Direction, Signal, SymbolSpec, Trade
 from ..utils import get_logger
 from ..validation.metrics import roc_auc, summarize
@@ -143,9 +143,7 @@ def walk_forward_backtest(
 
     # --- Zielvariable und Gewichte über die gesamte Reihe ------------------ #
     lb = cfg.labels
-    y_all, usable, barriers = direction_labels(
-        fs.base, fs.atr, lb.direction_atr, lb.max_horizon_bars, lb.min_return_atr
-    )
+    y_all, usable, barriers, label_kind = build_labels(cfg, fs)
     w_all = sample_weights(barriers, lb.sample_weight_decay, lb.apply_uniqueness_weights)
     mask = usable.to_numpy(dtype=bool)
     positions = np.arange(len(fs.frame))[mask]  # absolute Zeilen der lernbaren Beispiele
@@ -171,6 +169,11 @@ def walk_forward_backtest(
 
     # --- Je Fenster ein eigenes Modell ------------------------------------ #
     probas = np.full(len(fs.frame), np.nan)  # NaN = kein Modell zuständig = nicht handeln
+    # Güte und Basisrate gehören zum Modell des jeweiligen Fensters. Ohne sie
+    # läse die Engine die Wahrscheinlichkeiten als blosse Zahlen - ein
+    # Meta-Modell als Richtungsmodell und mit Gewicht null.
+    skills = np.zeros(len(fs.frame))
+    base_rates = np.full(len(fs.frame), 0.5)
     times = fs.frame.index
 
     for number, (train_idx, test_idx) in enumerate(windows, 1):
@@ -190,7 +193,8 @@ def walk_forward_backtest(
             # Purging arbeitet relativ zum übergebenen Ausschnitt, deshalb die
             # Ausstiegsindizes um den Fensteranfang verschieben.
             rel_exits = exits[train_idx] - int(train_idx[0])
-            ensemble.fit(X.iloc[train_idx], y[train_idx], w[train_idx], rel_exits)
+            ensemble.fit(X.iloc[train_idx], y[train_idx], w[train_idx], rel_exits,
+                         label_kind=label_kind)
             window_proba = ensemble.predict_proba(fs.frame.iloc[test_slice])
         except Exception as exc:
             log.warning("Fenster %d übersprungen: %s", number, exc)
@@ -198,6 +202,11 @@ def walk_forward_backtest(
             continue
 
         probas[test_slice] = window_proba
+        # Bewusst die Out-of-Fold-AUC aus dem Training dieses Fensters, nicht
+        # die AUC auf dem Testabschnitt: Letztere kennt das Modell nicht, wenn
+        # es entscheidet.
+        skills[test_slice] = skill_from_auc(ensemble.report.auc)
+        base_rates[test_slice] = ensemble.report.base_rate
 
         # Ehrliche AUC: nur auf den Testzeilen, die ein Label haben
         label_rows = test_idx
@@ -233,13 +242,17 @@ def walk_forward_backtest(
         )
 
     # --- Signale bilden: außerhalb der Fenster wird nicht gehandelt -------- #
-    engine = SignalEngine(cfg, models=None, blocklist=blocklist)
+    profile = ModelProfile(label_kind=label_kind)
+    engine = SignalEngine(cfg, models=None, blocklist=blocklist, profile=profile)
     signals: list[Signal] = []
     for i in range(len(fs.frame)):
         p = probas[i]
         if not np.isfinite(p):
             signals.append(_flat(fs, i))
             continue
+        # Das Profil wandert mit dem Fenster mit, in dem dieser Balken liegt.
+        profile.skill = float(skills[i])
+        profile.base_rate = float(base_rates[i])
         signals.append(engine.generate(fs, i, spec, proba=float(p)))
     result.traded_bars = int(np.isfinite(probas).sum())
 

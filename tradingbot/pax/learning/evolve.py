@@ -29,7 +29,7 @@ import pandas as pd
 
 from ..config import Config
 from ..features.builder import FeatureBuilder, FeatureSet
-from ..labeling import direction_labels, sample_weights
+from ..labeling import build_labels, sample_weights
 from ..models.ensemble import ModelEnsemble
 from ..models.registry import ModelRegistry
 from ..types import utcnow
@@ -126,9 +126,7 @@ class Evolver:
         """Merkmale und Zielvariable aufbereiten."""
         fs = self.builder.build(frames, symbol=symbol)
         lb = self.cfg.labels
-        y, usable, res = direction_labels(
-            fs.base, fs.atr, lb.direction_atr, lb.max_horizon_bars, lb.min_return_atr
-        )
+        y, usable, res, self.label_kind = build_labels(self.cfg, fs)
         w = sample_weights(res, lb.sample_weight_decay, lb.apply_uniqueness_weights)
         mask = usable.to_numpy(dtype=bool)
 
@@ -150,7 +148,8 @@ class Evolver:
         fs, data = self.prepare(frames, symbol)
         X = fs.frame.loc[data.index]
         ensemble = ModelEnsemble(self.cfg.model)
-        ensemble.fit(X, data["y"], data["w"], data["exit"])
+        ensemble.fit(X, data["y"], data["w"], data["exit"],
+                     label_kind=getattr(self, "label_kind", "direction"))
         return ensemble, fs, data
 
     def evolve(

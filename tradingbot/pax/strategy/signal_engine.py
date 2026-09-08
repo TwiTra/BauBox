@@ -84,6 +84,32 @@ def raw_bias_for(conviction: float) -> float:
     return float(-np.log(2.0 / (1.0 + c) - 1.0) / CONVICTION_GAIN)
 
 
+def skill_from_auc(auc: float) -> float:
+    """Nachgewiesene Güte in [0, 1] aus einer AUC.
+
+    AUC 0.50 ist Münzwurf und ergibt 0; ab 0.75 zählt das Modell voll. Es muss
+    eine *Out-of-Fold*-AUC sein: Die AUC auf den Balken, die das Modell gerade
+    handelt, wäre Zukunftswissen.
+    """
+    return float(min(max(4.0 * (float(auc) - 0.5), 0.0), 1.0))
+
+
+@dataclass
+class ModelProfile:
+    """Kenndaten eines Modells, wenn das Modellobjekt selbst nicht vorliegt.
+
+    Der Vorwärtstest berechnet die Wahrscheinlichkeiten vorab und übergibt sie
+    der Engine als blosse Zahl. Ohne diese Angaben wüsste die Engine dann weder,
+    welche Frage das Modell beantwortet hat, noch wie gut es war - sie würde ein
+    Meta-Modell als Richtungsmodell lesen und seiner Aussage das Gewicht null
+    geben. Beides verfälscht das Ergebnis still.
+    """
+
+    label_kind: str = "direction"
+    base_rate: float = 0.5
+    skill: float = 0.0
+
+
 @dataclass
 class HorizonModels:
     """Ein Modell je Horizont - oder ein gemeinsames für alle."""
@@ -98,6 +124,23 @@ class HorizonModels:
     @property
     def any_available(self) -> bool:
         return any(m is not None for m in (self.short, self.medium, self.long))
+
+    def _first(self) -> object:
+        for m in (self.medium, self.short, self.long):
+            if m is not None:
+                return m
+        return None
+
+    @property
+    def label_kind(self) -> str:
+        """Welche Frage beantwortet das Modell - "direction" oder "meta"?"""
+        return str(getattr(getattr(self._first(), "report", None), "label_kind", "direction"))
+
+    @property
+    def base_rate(self) -> float:
+        """Anteil positiver Beispiele im Training - der neutrale Punkt eines Meta-Modells."""
+        value = float(getattr(getattr(self._first(), "report", None), "base_rate", 0.5))
+        return float(min(max(value, 1e-3), 1.0 - 1e-3))
 
     @property
     def skill(self) -> float:
@@ -114,7 +157,7 @@ class HorizonModels:
         ]
         if not aucs:
             return 0.0
-        return float(min(max(4.0 * (max(aucs) - 0.5), 0.0), 1.0))
+        return skill_from_auc(max(aucs))
 
 
 class SignalEngine:
@@ -131,9 +174,11 @@ class SignalEngine:
         models: "HorizonModels | object | None" = None,
         rule_engine: "RuleEngine | None" = None,
         blocklist: object = None,
+        profile: "ModelProfile | None" = None,
     ) -> None:
         self.cfg = cfg
         self.rules = rule_engine or RuleEngine()
+        self.profile = profile
         # Hier schließt sich die Lernschleife: Was die Fehleranalyse als
         # dauerhaft verlustbringend erkannt hat, kommt gar nicht erst durch.
         self.blocklist = blocklist
@@ -143,6 +188,23 @@ class SignalEngine:
             self.models = models
         else:  # ein einzelnes Ensemble für alle Horizonte
             self.models = HorizonModels(models, models, models)
+
+    # ------------------------------------------------------------------ #
+    # Kenndaten des Modells - das Profil hat Vorrang vor dem Modellobjekt
+    # ------------------------------------------------------------------ #
+
+    @property
+    def label_kind(self) -> str:
+        return self.profile.label_kind if self.profile else self.models.label_kind
+
+    @property
+    def base_rate(self) -> float:
+        value = self.profile.base_rate if self.profile else self.models.base_rate
+        return float(min(max(float(value), 1e-3), 1.0 - 1e-3))
+
+    @property
+    def model_skill(self) -> float:
+        return float(self.profile.skill if self.profile else self.models.skill)
 
     # ------------------------------------------------------------------ #
     # Einzelsignal
@@ -280,10 +342,20 @@ class SignalEngine:
             # schrumpft auf 45 %, und kein noch so gutes Setup erreicht dann
             # die Mindestschwelle. Ein Modell ohne Wissen muss neutral sein,
             # nicht vetoberechtigt.
-            model_bias = (float(proba) - 0.5) * 2.0
-            w_model = self.MODEL_WEIGHT * self.models.skill
-            w_rule = 1.0 - w_model
-            combined = w_model * model_bias + w_rule * rule.score
+            w_model = self.MODEL_WEIGHT * self.model_skill
+            if self.label_kind == "meta":
+                # Das Meta-Modell beantwortet "hätte dieser Trade funktioniert?".
+                # Es hat damit keine eigene Richtungsmeinung - die Richtung kommt
+                # vom Regelwerk. Das Modell darf die Überzeugung verstärken oder
+                # dämpfen, aber niemals umdrehen: Eine geringe Gewinnaussicht für
+                # einen Long heißt nicht, dass ein Short gewinnt.
+                gate = float(np.tanh(_logit(float(proba)) - _logit(self.base_rate)))
+                combined = rule.score * (1.0 + w_model * gate)
+            else:
+                # Das Richtungsmodell hat eine eigene Meinung; 0.5 heißt dort
+                # ausdrücklich "Münzwurf" und darf die Regeln dämpfen.
+                model_bias = (float(proba) - 0.5) * 2.0
+                combined = w_model * model_bias + (1.0 - w_model) * rule.score
 
         # Widersprechen sich Zeitebenen und Gesamtbild, wird der Wert gestaucht.
         if combined != 0 and alignment != 0 and np.sign(alignment) != np.sign(combined):
@@ -410,10 +482,18 @@ class SignalEngine:
             ]
             avg_rr = float(np.dot(r_levels, signal.tp_fractions))
 
-        if proba is not None:
-            # Das Modell ist auf symmetrische Barrieren trainiert: 0.5 heißt
-            # "keine Richtungsmeinung". Für einen Short zählt die Gegenwahr-
-            # scheinlichkeit - bei symmetrischen Barrieren ist das zulässig.
+        if proba is not None and self.label_kind == "meta":
+            # `proba` ist hier bereits die Gewinnwahrscheinlichkeit - allerdings
+            # für die Barrieren des Meta-Labels. Stimmt das CRV des Trades damit
+            # überein, kommt unten exakt `proba` heraus; weicht es ab, wird der
+            # Vorsprung in Log-Odds auf das tatsächliche CRV übertragen.
+            lb = self.cfg.labels
+            rr_meta = float(lb.tp_atr) / max(float(lb.sl_atr), 1e-9)
+            edge = _logit(float(proba)) - _logit(1.0 / (1.0 + rr_meta))
+        elif proba is not None:
+            # Das Richtungsmodell ist auf symmetrische Barrieren trainiert: 0.5
+            # heißt "keine Richtungsmeinung". Für einen Short zählt die Gegen-
+            # wahrscheinlichkeit - bei symmetrischen Barrieren ist das zulässig.
             p_dir = float(proba) if signal.direction is Direction.LONG else 1.0 - float(proba)
             edge = _logit(p_dir)  # logit(0.5) = 0, der Nullpunkt stimmt also
         else:

@@ -72,13 +72,11 @@ def _headline(text: str) -> None:
 def _prepare_training_data(cfg: Config, bundle) -> tuple:
     """Merkmale, Ziel und Gewichte - der Weg ist für alle Befehle derselbe."""
     from .features import FeatureBuilder
-    from .labeling import direction_labels, label_report, sample_weights
+    from .labeling import build_labels, label_report, sample_weights
 
     fs = FeatureBuilder(cfg).build(bundle.frames, symbol=bundle.symbol, digits=bundle.spec.digits)
     lb = cfg.labels
-    y, usable, res = direction_labels(
-        fs.base, fs.atr, lb.direction_atr, lb.max_horizon_bars, lb.min_return_atr
-    )
+    y, usable, res, kind = build_labels(cfg, fs)
     w = sample_weights(res, lb.sample_weight_decay, lb.apply_uniqueness_weights)
     mask = usable.to_numpy(dtype=bool)
     original = np.arange(len(fs.frame))[mask]
@@ -86,7 +84,8 @@ def _prepare_training_data(cfg: Config, bundle) -> tuple:
     # Purging auf die Positionen im gefilterten Rahmen umgerechnet werden.
     exits = np.searchsorted(original, res.exit_index[mask].to_numpy(), side="left").astype(float)
     bericht = label_report(y, usable, res)
-    return fs, fs.frame[mask], y[mask].to_numpy(), w[mask].to_numpy(), exits, bericht
+    bericht["art"] = kind
+    return fs, fs.frame[mask], y[mask].to_numpy(), w[mask].to_numpy(), exits, bericht, kind
 
 
 # --------------------------------------------------------------------------- #
@@ -397,7 +396,7 @@ def cmd_train(args: argparse.Namespace) -> int:
         if bundle.is_synthetic:
             print("  ACHTUNG: synthetische Daten - das entstehende Modell ist nur ein Funktionstest.")
 
-        fs, X, y, w, exits, label_info = _prepare_training_data(cfg, bundle)
+        fs, X, y, w, exits, label_info, label_kind = _prepare_training_data(cfg, bundle)
         print(f"  Merkmale: {X.shape[1]}, Beispiele: {X.shape[0]}")
         print("  Zielvariable:")
         for schluessel, wert in label_info.items():
@@ -405,7 +404,7 @@ def cmd_train(args: argparse.Namespace) -> int:
 
         ensemble = ModelEnsemble(cfg.model)
         try:
-            report = ensemble.fit(X, y, w, exits)
+            report = ensemble.fit(X, y, w, exits, label_kind=label_kind)
         except Exception as exc:
             print(f"\n  Training fehlgeschlagen: {exc}")
             continue
@@ -529,7 +528,7 @@ def cmd_walkforward(args: argparse.Namespace) -> int:
         bundle = load_data(cfg, symbol, args.bars)
         _headline(f"Vorwärtstest {symbol}")
         print(f"\n  {bundle.describe()}")
-        fs, X, y, w, exits, _ = _prepare_training_data(cfg, bundle)
+        fs, X, y, w, exits, _, label_kind = _prepare_training_data(cfg, bundle)
 
         try:
             windows = walk_forward_windows(
@@ -555,7 +554,8 @@ def cmd_walkforward(args: argparse.Namespace) -> int:
                 # Purging arbeitet relativ zum übergebenen Ausschnitt - bei einem
                 # rollenden Fenster muss der Startversatz abgezogen werden.
                 rel_exits = exits[train_idx] - int(train_idx[0])
-                ensemble.fit(X.iloc[train_idx], y[train_idx], w[train_idx], rel_exits)
+                ensemble.fit(X.iloc[train_idx], y[train_idx], w[train_idx], rel_exits,
+                             label_kind=label_kind)
                 proba = ensemble.predict_proba(X.iloc[test_idx])
             except Exception as exc:
                 print(f"  {k:<9}Fehler: {exc}")

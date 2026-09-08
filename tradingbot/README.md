@@ -37,24 +37,30 @@ Vorteil nicht.
 
 ### Der bisher gemessene Stand
 
-Damit hier keine Behauptung ohne Zahl steht — der Vorwärtstest auf **echten
+Damit hier keine Behauptung ohne Zahl steht — Vorwärtstest auf **echten
 EURUSD-Tickdaten** (33 Mio. Ticks, Januar 2025 bis September 2026, fünf Fenster,
 jedes Modell kannte nur Daten vor seinem Fenster):
 
-| | |
-|---|---|
-| Trades | 19 |
-| Erwartungswert | **−0,42 R je Trade** |
-| Summe | −8,0 R (−7,7 %) |
-| Trefferquote | 36,8 % |
-| AUC der Modelle | 0,538 ± 0,028 |
-| PSR | 0,03 |
+| | Regelwerk allein | Richtungsmodell | Meta-Modell |
+|---|---|---|---|
+| Trades | 19 | 16 | **34** |
+| Erwartungswert je Trade | −0,42 R | −0,23 R | **−0,15 R** |
+| Trefferquote | 36,8 % | 43,8 % | **50,0 %** |
+| Summe | −8,0 R | −3,7 R | −5,0 R |
+| PSR | 0,03 | 0,19 | 0,19 |
 
-**Das ist kein Vorteil.** Die Modelle liegen mit AUC 0,538 knapp über dem Zufall,
-aber der Vorsprung trägt die Kosten nicht — allein Spread und Kommission fressen
-24 % des Bruttoergebnisses. Der PSR von 0,03 sagt genau das: Die Wahrscheinlichkeit,
-dass hier ein echter Vorteil vorliegt, ist gering. Bei 19 Trades ist umgekehrt auch
-das Gegenteil nicht bewiesen — die Stichprobe ist für beides zu klein.
+**Keine dieser Varianten hat einen Vorteil.** Jeder Schritt macht das Ergebnis
+weniger schlecht, keiner macht es positiv. Die Modelle liegen mit AUC ~0,53
+knapp über dem Zufall, aber der Vorsprung trägt die Kosten nicht — Spread und
+Kommission allein fressen rund ein Viertel des Bruttoergebnisses. Der PSR von
+0,19 sagt genau das: Die Wahrscheinlichkeit, dass hier ein echter Vorteil
+vorliegt, ist gering. Bei 16 bis 34 Trades ist umgekehrt auch das Gegenteil
+nicht bewiesen — die Stichprobe ist für beides zu klein.
+
+Das Meta-Modell ist die Vorgabe, weil es auf denselben Daten den besten
+Erwartungswert liefert und mehr als doppelt so viele Gelegenheiten findet. Es
+beantwortet die Frage „hätte *dieser* Trade funktioniert?" direkt, statt sie aus
+einer Richtungswahrscheinlichkeit abzuleiten.
 
 Diese Zahl steht hier, weil sie das Ergebnis ist. Sie durch Nachjustieren der
 Schwellen freundlicher zu machen, wäre genau die Anpassung an die Vergangenheit,
@@ -433,7 +439,7 @@ tradingbot/
     learning/    Journal, Fehleranalyse, Weiterentwicklung
     live/        Wächter, Hauptschleife
     cli.py       Kommandozeile
-  tests/         209 Tests
+  tests/         222 Tests
 ```
 
 ```bash

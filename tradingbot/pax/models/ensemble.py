@@ -60,6 +60,13 @@ class FitReport:
     oof_metrics: dict[str, float] = field(default_factory=dict)
     selected_features: list[str] = field(default_factory=list)
     calibration: str = "isotonic"
+    # Welche Frage beantwortet dieses Modell? "direction" heißt: proba ist die
+    # Wahrscheinlichkeit einer Aufwärtsbewegung, neutral bei 0.5. "meta" heißt:
+    # proba ist die Gewinnwahrscheinlichkeit des vom Regelwerk vorgeschlagenen
+    # Trades, neutral bei der Basisrate. Die Bedeutungen zu verwechseln, baut
+    # eine erfundene Richtungsneigung ein - das ist hier schon passiert.
+    label_kind: str = "direction"
+    base_rate: float = 0.5  # Anteil positiver Beispiele im Training
     trained_at: str = ""
     duration_s: float = 0.0
     libraries: dict[str, str] = field(default_factory=dict)
@@ -111,8 +118,13 @@ class ModelEnsemble:
         y: "pd.Series | np.ndarray",
         sample_weight: "pd.Series | np.ndarray | None" = None,
         exit_index: "pd.Series | np.ndarray | None" = None,
+        label_kind: str = "direction",
     ) -> FitReport:
-        """Ensemble anlernen. `exit_index` steuert das Purging der Faltungen."""
+        """Ensemble anlernen. `exit_index` steuert das Purging der Faltungen.
+
+        `label_kind` wird nicht verwendet, sondern mitgeschrieben: Wer das
+        Modell später befragt, muss wissen, welche Frage es beantwortet.
+        """
         start = time.perf_counter()
         cfg = self.cfg
         X = pd.DataFrame(X).replace([np.inf, -np.inf], np.nan)
@@ -132,6 +144,8 @@ class ModelEnsemble:
 
         report = FitReport(
             n_samples=len(X), blend=cfg.blend, calibration=cfg.calibration,
+            label_kind=str(label_kind),
+            base_rate=round(float(np.average(y, weights=w)), 6),
             trained_at=datetime.now(timezone.utc).isoformat(), libraries=library_versions(),
         )
         balance = float(min(y.mean(), 1 - y.mean()))
@@ -483,7 +497,8 @@ class ModelEnsemble:
         write_json(
             path / "meta.json",
             {"version": self.version, "features": len(self.selected_features),
-             "members": list(self.models), "auc": self.report.auc},
+             "members": list(self.models), "auc": self.report.auc,
+             "label_kind": self.report.label_kind, "base_rate": self.report.base_rate},
         )
         return path
 

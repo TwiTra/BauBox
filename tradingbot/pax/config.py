@@ -141,6 +141,7 @@ class LabelConfig:
     max_horizon_bars: int = 48  # vertikale Barriere
     min_return_atr: float = 0.25  # kleinere Bewegungen gelten als neutral
     use_meta_labeling: bool = True
+    min_meta_samples: int = 500  # darunter lohnt das Meta-Modell nicht
     sample_weight_decay: float = 0.5  # 0 = keine Zeitgewichtung, 1 = stark
     apply_uniqueness_weights: bool = True
 
