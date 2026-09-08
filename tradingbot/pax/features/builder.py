@@ -298,16 +298,34 @@ def assert_causal(
     sein. Jede Abweichung ist ein Datenleck.
     """
     full = builder.build(frames, warmup=0)
+
+    # Gekürzt wird nach *Zeitpunkt*, nicht nach Balkenzahl. Der Unterschied ist
+    # nicht kosmetisch: Bei cut=64 auf M15-Basis ergibt `cut // scale` für D1
+    # eine Null, aufgerundet auf einen Balken - also 24 Stunden statt 16. Der
+    # gekürzte Rahmen verlöre damit einen Tagesbalken, den der volle Rahmen für
+    # denselben Basisbalken völlig zu Recht verwendet, und die Prüfung meldete
+    # einen Lookahead, den es nicht gibt. Für H1 und H4 ging die Rechnung
+    # zufällig auf, weshalb der Fehler nur bei Tagesdaten auftrat - also genau
+    # dort, wo niemand ihn suchte.
+    base_tf = min(Timeframe.parse(k) for k in frames)
+    base_name = next(k for k in frames if Timeframe.parse(k) == base_tf)
+    base_index = frames[base_name].index
+    if len(base_index) <= cut:
+        raise AssertionError(f"Zu wenige Basisbalken für die Prüfung: {len(base_index)} <= {cut}")
+    stichtag = base_index[-cut - 1]
+    # Zeitpunkt, zu dem der letzte behaltene Basisbalken schließt
+    ende = stichtag + pd.Timedelta(minutes=base_tf.minutes)
+
     trimmed_frames = {}
     for tf_name, df in frames.items():
         tf = Timeframe.parse(tf_name)
-        base = min(Timeframe.parse(k) for k in frames)
-        scale = max(1, tf.minutes // base.minutes)
-        drop = max(1, cut // scale)
-        trimmed_frames[tf_name] = df.iloc[:-drop]
+        schluss = df.index + pd.Timedelta(minutes=tf.minutes)
+        trimmed_frames[tf_name] = df[schluss <= ende]
     trimmed = builder.build(trimmed_frames, warmup=0)
 
-    common = trimmed.frame.index[-check_rows:]
+    # Verglichen wird nur bis zum Stichtag - danach hat der gekürzte Rahmen
+    # per Konstruktion keine Daten mehr.
+    common = trimmed.frame.index[trimmed.frame.index <= stichtag][-check_rows:]
     common = common.intersection(full.frame.index)
     if len(common) == 0:
         raise AssertionError("Kein gemeinsamer Zeitraum für die Kausalitätsprüfung")

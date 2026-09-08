@@ -137,3 +137,93 @@ def test_sweep_erkennt_docht_mit_rueckeroberung():
     atr = pd.Series(0.002, index=idx)
     sweeps = detect_sweeps(df, atr)
     assert sweeps["sweep_raw"].iloc[25] > 0
+
+
+def _echte_geometrie(market):
+    """Zeitebenen so aufbauen, wie echte Daten aussehen.
+
+    Die hoeheren Ebenen werden aus der Basis verdichtet, und die laufende,
+    noch unvollstaendige Periode faellt dabei weg. Der Tagesbalken hinkt der
+    Basis dadurch um bis zu zwei Tage hinterher - anders als bei Reihen, die
+    fuer jede Ebene bis zum selben Zeitpunkt erzeugt werden.
+    """
+    from pax.features.mtf import resample_ohlcv
+
+    # Genug Balken, damit die Tagesebene ueberhaupt Merkmale traegt: Unter rund
+    # 100 Tagesbalken ueberspringt der Builder die Ebene, und der Fehlalarm
+    # bliebe unsichtbar - genau deshalb fiel er in der Testsuite nie auf.
+    basis = market.generate(bars=12000, timeframe="M15")
+    # Mitten am Tag enden, damit der laufende Tagesbalken unvollstaendig ist
+    basis = basis[basis.index <= basis.index[-1].normalize() + pd.Timedelta(hours=20)]
+    return {
+        "M15": basis,
+        "H1": resample_ohlcv(basis, "H1"),
+        "H4": resample_ohlcv(basis, "H4"),
+        "D1": resample_ohlcv(basis, "D1"),
+    }
+
+
+# --------------------------------------------------------------------------- #
+# Die Kausalitaetspruefung selbst
+# --------------------------------------------------------------------------- #
+
+
+def test_kausalitaetspruefung_meldet_bei_tagesdaten_keinen_fehlalarm(market):
+    """Regressionstest: Die Pruefung kuerzte nach Balkenzahl statt nach Zeit.
+
+    Bei cut=64 auf M15-Basis ergibt `cut // scale` fuer D1 eine Null, aufgerundet
+    auf einen Balken - also 24 Stunden statt 16. Der gekuerzte Rahmen verlor
+    damit einen Tagesbalken, den der volle Rahmen fuer denselben Basisbalken zu
+    Recht verwendete, und die Pruefung meldete einen Lookahead, den es nicht
+    gab. Fuer H1 und H4 ging die Rechnung zufaellig auf - der Fehlalarm trat nur
+    bei Tagesdaten auf, also genau dort, wo niemand ihn suchte.
+    """
+    from pax.config import Config
+    from pax.features import FeatureBuilder, assert_causal
+
+    frames = _echte_geometrie(market)
+    assert len(frames["D1"]) >= 100, "zu wenige Tagesbalken - die Ebene wird uebersprungen"
+    # Die Geometrie ist der ganze Punkt: Der Tagesbalken hinkt der Basis um
+    # gut zwei Tage hinterher, weil der laufende Tag noch nicht geschlossen
+    # ist. Genau dann faellt der Balken, den die alte Kuerzung zu viel
+    # abschnitt, in den Vergleichsbereich.
+    abstand = frames["M15"].index[-1] - frames["D1"].index[-1]
+    assert abstand > pd.Timedelta(hours=40), f"Testaufbau greift nicht: {abstand}"
+
+    builder = FeatureBuilder(Config())
+    diffs = assert_causal(builder, frames, cut=64, check_rows=120)
+    assert max(diffs.values()) == 0.0
+
+
+def test_kausalitaetspruefung_findet_einen_echten_lookahead(market, monkeypatch):
+    """Die Gegenprobe: Ohne sie waere die Korrektur oben nur eine Abschwaechung."""
+    import pandas as pd
+
+    from pax.config import Config
+    from pax.features import FeatureBuilder, assert_causal
+    from pax.features import mtf
+
+    frames = _echte_geometrie(market)
+    builder = FeatureBuilder(Config())
+
+    echt = mtf.align_to_base
+
+    def ohne_versatz(higher, base_index, higher_tf, prefix=""):
+        """Hoeheren Balken schon bei Oeffnung sichtbar machen - der klassische Fehler.
+
+        Der Versatz wird vorab abgezogen, damit ihn `align_to_base` gleich
+        wieder aufaddiert: Der Balken ist damit ab seiner Oeffnung sichtbar
+        statt ab seinem Schluss.
+        """
+        from pax.types import Timeframe
+
+        tf = Timeframe.parse(higher_tf)
+        verschoben = higher.copy()
+        verschoben.index = verschoben.index - pd.Timedelta(minutes=tf.minutes)
+        return echt(verschoben, base_index, higher_tf, prefix=prefix)
+
+    monkeypatch.setattr(mtf, "align_to_base", ohne_versatz)
+    monkeypatch.setattr("pax.features.builder.align_to_base", ohne_versatz, raising=False)
+
+    with pytest.raises(AssertionError, match="Lookahead"):
+        assert_causal(builder, frames, cut=64, check_rows=120)
