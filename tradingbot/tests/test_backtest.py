@@ -149,3 +149,36 @@ def test_bericht_mit_trades(featureset, config):
 def test_signalzahl_muss_zur_balkenzahl_passen(featureset, config):
     with pytest.raises(ValueError):
         BacktestEngine(config, SPEC).run(featureset, _leere_signale(featureset)[:-5])
+
+
+def test_kursziele_kollabieren_nicht_auf_den_boden(featureset, config):
+    """Regressionstest gegen den stillsten aller Fehler: null Trades.
+
+    Ein zu enger Filter lässt die ganze Kette formal fehlerfrei durchlaufen -
+    Signale werden erzeugt, geprüft, abgelehnt, und am Ende steht ein leerer
+    Bericht mit Exit-Code 0. Genau das passierte, als das Kursziel vom
+    *nächstgelegenen* Nebenlevel gedeckelt wurde: Da neben dem Kurs praktisch
+    immer irgendein Level liegt, fiel das CRV reihenweise auf seinen Boden von
+    0,5 und blieb damit unter jeder Mindestanforderung.
+
+    Geprüft wird die Signatur des Fehlers, nicht seine Folge. Eine Trade-Zahl
+    wäre zu stumpf - auf diesen Daten kamen selbst mit dem Fehler noch sieben
+    Signale durch. Der Anteil bodengedeckelter Ziele dagegen sprang von 0 auf
+    61 Prozent und ist über Bibliotheksversionen hinweg stabil.
+    """
+    signale = SignalEngine(config).generate_series(featureset, SPEC)
+    crv = pd.Series([s.risk_reward for s in signale])
+    am_boden = float((crv <= 0.501).mean())
+    assert am_boden < 0.20, (
+        f"{am_boden:.1%} aller Signale haben ein CRV am unteren Anschlag - "
+        "die Zielfindung wird von Nahzielen gedeckelt"
+    )
+    assert crv.median() >= config.risk.min_risk_reward * 0.8
+
+    handelbar = [s for s in signale if s.is_actionable]
+    assert handelbar, "kein einziges handelbares Signal - ein Filter ist zu streng"
+    result = BacktestEngine(config, SPEC).run(featureset, signale)
+    assert result.trades, "handelbare Signale vorhanden, aber kein Trade zustande gekommen"
+    assert result.signals_actionable == len(handelbar)
+    assert all(np.isfinite(t.r_multiple) for t in result.trades)
+    assert all(t.entry_price > 0 and t.stop_loss > 0 for t in result.trades)

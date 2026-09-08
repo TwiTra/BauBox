@@ -326,7 +326,7 @@ tradingbot/
     learning/    Journal, Fehleranalyse, Weiterentwicklung
     live/        Wächter, Hauptschleife
     cli.py       Kommandozeile
-  tests/         156 Tests
+  tests/         159 Tests
 ```
 
 ```bash
@@ -334,9 +334,24 @@ python -m pytest tests/ -q
 ```
 
 Die Suite prüft nicht nur, ob der Code läuft, sondern ob er *ehrlich* ist:
-Kausalität jedes Merkmals, Nicht-Überlappung der Faltungen, pessimistische
-Barrierenauflösung, und eine Gegenprobe, bei der das Ensemble auf zufällig
-gemischten Labels trainiert wird und dabei auf Zufallsniveau bleiben muss.
+
+* **Kausalität jedes Merkmals** – die Matrix wird zweimal gebaut, einmal mit
+  abgeschnittener Zukunft; auf dem gemeinsamen Zeitraum muss die Abweichung
+  exakt 0 sein
+* **Nicht-Überlappung der Faltungen** inklusive Barrierehorizont
+* **Pessimistische Barrierenauflösung** – die optimistische Variante darf nie
+  schlechter abschneiden
+* **Gegenprobe auf gemischten Labels** – das Ensemble muss dabei auf
+  Zufallsniveau bleiben
+* **Kursziele dürfen nicht auf ihren Boden kollabieren** – der Regressionstest
+  gegen den Fehler, bei dem ein Nebenlevel direkt neben dem Kurs jedes CRV
+  deckelte und der Backtest still null Trades lieferte
+
+Bei jeder Änderung unter `tradingbot/` läuft auf GitHub zusätzlich der Workflow
+`Handelssystem testen` (Python 3.11 und 3.12): Testsuite, Selbsttest und ein
+Probe-Backtest. Der Selbsttest ist dort der eigentliche Punkt – ein
+Lookahead-Fehler fällt beim Lesen praktisch nie auf, also soll ihn bei jeder
+Änderung eine Maschine suchen.
 
 ---
 
