@@ -96,7 +96,9 @@ class LiveRunner:
         self.registry = ModelRegistry(cfg.learning.model_dir, cfg.learning.keep_model_versions)
         self.blocklist = Blocklist.load(Path(cfg.learning.model_dir).parent / "blocklist.json")
         self.risk = RiskManager(cfg.risk)
-        self.manager = TradeManager(self.broker, cfg.risk)
+        # Das Journal dient dem Manager als Ablage: So überstehen Teilgewinnzähler,
+        # Ausgangsstop und Zeitlimit einen Neustart.
+        self.manager = TradeManager(self.broker, cfg.risk, store=self.journal)
         self.guard = Guard(cfg)
         self.sessions = SessionFilter(cfg.sessions)
         self.evolver = Evolver(cfg, self.registry, self.journal, self.builder)
@@ -140,6 +142,15 @@ class LiveRunner:
 
         if not self.specs:
             raise RuntimeError("Kein einziges handelbares Symbol - Abbruch")
+
+        # Zustände von Positionen aufräumen, die es beim Broker nicht mehr gibt
+        try:
+            offen = {p.ticket for p in self.broker.positions()}
+            verwaist = self.journal.prune_position_states(offen)
+            if verwaist:
+                log.info("%d verwaiste Positionszustände entfernt", verwaist)
+        except Exception as exc:
+            log.warning("Positionszustände nicht aufräumbar: %s", exc)
 
         active = self.blocklist.active_rules()
         if active:

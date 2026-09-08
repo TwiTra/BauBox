@@ -97,6 +97,13 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE INDEX IF NOT EXISTS idx_events_time ON events(time);
 
+CREATE TABLE IF NOT EXISTS managed_positions (
+    ticket      INTEGER PRIMARY KEY,
+    symbol      TEXT NOT NULL,
+    state       TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS training_runs (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     time          TEXT NOT NULL,
@@ -221,6 +228,55 @@ class Journal:
                 (_iso(utcnow()), symbol, version, auc, n_samples, n_features,
                  int(promoted), reason, json.dumps(metrics or {}, ensure_ascii=False, default=str)),
             )
+
+    # ------------------------------------------------------------------ #
+    # Positionsführung (übersteht einen Neustart)
+    # ------------------------------------------------------------------ #
+
+    def save_position_state(self, ticket: int, symbol: str, state: dict[str, Any]) -> None:
+        """Führungszustand einer offenen Position sichern.
+
+        MT5 kennt weder Teilgewinnzähler noch den ursprünglichen Stop. Ohne
+        diese Ablage beginnt der Bot nach jedem Neustart bei null - und nimmt
+        Teilgewinne ein zweites Mal oder rechnet mit dem falschen Risiko.
+        """
+        with self._connect() as conn:
+            conn.execute(
+                """INSERT INTO managed_positions (ticket, symbol, state, updated_at)
+                   VALUES (?,?,?,?)
+                   ON CONFLICT(ticket) DO UPDATE SET
+                       symbol = excluded.symbol,
+                       state = excluded.state,
+                       updated_at = excluded.updated_at""",
+                (int(ticket), symbol, json.dumps(state, ensure_ascii=False, default=str),
+                 _iso(utcnow())),
+            )
+
+    def load_position_states(self) -> dict[int, dict[str, Any]]:
+        """Alle gesicherten Führungszustände laden."""
+        with self._connect() as conn:
+            rows = conn.execute("SELECT ticket, state FROM managed_positions").fetchall()
+        out: dict[int, dict[str, Any]] = {}
+        for row in rows:
+            try:
+                out[int(row["ticket"])] = json.loads(row["state"])
+            except (json.JSONDecodeError, TypeError):
+                log.warning("Führungszustand für Ticket %s unlesbar - wird verworfen", row["ticket"])
+        return out
+
+    def delete_position_state(self, ticket: int) -> None:
+        with self._connect() as conn:
+            conn.execute("DELETE FROM managed_positions WHERE ticket = ?", (int(ticket),))
+
+    def prune_position_states(self, keep_tickets: "set[int] | list[int]") -> int:
+        """Zustände verwaister Tickets entfernen (Position längst geschlossen)."""
+        keep = {int(t) for t in keep_tickets}
+        with self._connect() as conn:
+            rows = conn.execute("SELECT ticket FROM managed_positions").fetchall()
+            gone = [int(r["ticket"]) for r in rows if int(r["ticket"]) not in keep]
+            for ticket in gone:
+                conn.execute("DELETE FROM managed_positions WHERE ticket = ?", (ticket,))
+        return len(gone)
 
     # ------------------------------------------------------------------ #
     # Lesen

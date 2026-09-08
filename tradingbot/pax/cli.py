@@ -6,6 +6,7 @@ Ein Befehl je Arbeitsschritt, in der Reihenfolge, in der man sie braucht:
     status      Was ist da? Daten, Modelle, Journal
     connect     MT5-Verbindung prüfen
     fetch       Historie herunterladen
+    import      eigene Kursdaten aus CSV übernehmen
     analyse     aktuelle Lage und Signal für ein Symbol
     backtest    Strategie auf der Historie prüfen
     train       Modell anlernen
@@ -323,11 +324,39 @@ def cmd_backtest(args: argparse.Namespace) -> int:
             print("  ACHTUNG: synthetische Daten - das prüft die Software, nicht den Markt.")
         fs = FeatureBuilder(cfg).build(bundle.frames, symbol=symbol, digits=bundle.spec.digits)
         model = registry.load(symbol) if not args.rules_only else None
-        engine = SignalEngine(cfg, model, blocklist=blocklist)
-        signals = engine.generate_series(fs, bundle.spec)
-        result = BacktestEngine(cfg, bundle.spec).run(fs, signals, sessions)
-        print(format_report(result, "EUR", n_trials=args.trials,
-                            periods_per_year=_periods_per_year(cfg)))
+
+        if model is not None and not args.in_sample:
+            # Standardweg, sobald ein Modell mitspielt: je Fenster ein eigenes
+            # Modell, das nur frühere Daten kannte. Dauert länger und ist die
+            # einzige Zahl, auf die man eine Entscheidung stützen darf.
+            from .backtest import format_walkforward_report, walk_forward_backtest
+
+            print(f"  Vorwärtsmodus: {args.folds} Fenster, je Fenster ein eigenes Modell.")
+            print("  Das dauert - jedes Fenster wird vollständig neu trainiert.")
+            try:
+                wf = walk_forward_backtest(
+                    cfg, fs, bundle.spec, folds=args.folds, train_frac=args.train_frac,
+                    anchored=not args.rolling, session_filter=sessions, blocklist=blocklist,
+                )
+            except (ValueError, RuntimeError) as exc:
+                print(f"  Vorwärtstest nicht möglich: {exc}")
+                continue
+            print(format_walkforward_report(wf, "EUR", n_trials=args.trials,
+                                            periods_per_year=_periods_per_year(cfg)))
+            result = wf.backtest
+        else:
+            engine = SignalEngine(cfg, model, blocklist=blocklist)
+            signals = engine.generate_series(fs, bundle.spec)
+            result = BacktestEngine(cfg, bundle.spec).run(fs, signals, sessions)
+            if model is not None:
+                print("\n  ACHTUNG: --in-sample. Das Modell wurde auf genau dieser Historie")
+                print("  trainiert und kennt die Antworten. Das Ergebnis ist systematisch zu gut")
+                print("  und taugt nur zur Fehlersuche, nie als Entscheidungsgrundlage.\n")
+            print(format_report(result, "EUR", n_trials=args.trials,
+                                periods_per_year=_periods_per_year(cfg)))
+
+        if result is None:
+            continue
         total_r.extend(result.r_multiples.tolist())
         if journal is not None and result.trades:
             journal.record_trades(result.trades, source="backtest")
@@ -396,6 +425,67 @@ def cmd_train(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_import(args: argparse.Namespace) -> int:
+    """Eigene Kursdaten aus einer CSV-Datei übernehmen."""
+    cfg = _load_config(args)
+    from .data.csv_import import ImportReport, read_csv_bars
+    from .data.store import BarStore
+    from .features.mtf import resample_ohlcv
+
+    _headline(f"Kursdaten einlesen: {args.file}")
+    report = ImportReport(symbol=args.symbol)
+    try:
+        df = read_csv_bars(args.file, tz_shift_hours=args.tz_shift, report=report)
+    except (FileNotFoundError, ValueError) as exc:
+        print(f"\n  {exc}")
+        return 1
+    if df.empty:
+        print("\n  Keine brauchbaren Zeilen gefunden.")
+        return 1
+
+    base = Timeframe.parse(report.timeframe) if report.timeframe != "?" else None
+    if base is None:
+        print("\n  Die Zeiteinheit ließ sich nicht bestimmen. Mit --timeframe angeben.")
+        return 1
+    if args.timeframe:
+        base = Timeframe.parse(args.timeframe)
+
+    ziele = [tf for tf in cfg.data.all_timeframes if tf.minutes >= base.minutes]
+    if base not in ziele:
+        ziele.insert(0, base)
+
+    store = BarStore(cfg.data.cache_dir)
+    for tf in ziele:
+        verdichtet = df if tf is base else resample_ohlcv(df, tf)
+        if verdichtet.empty:
+            report.warnings.append(f"{tf.value}: keine vollständige Periode - übersprungen")
+            continue
+        if not args.dry_run:
+            store.write(args.symbol, tf, verdichtet)
+        report.written[tf.value] = len(verdichtet)
+
+    print("\n" + report.summary())
+    if args.tz_shift == 0:
+        print(
+            "\n  ZEITZONE: Es wurde keine Verschiebung angegeben, die Zeiten gelten also als UTC.\n"
+            "  MT5 exportiert in Serverzeit - meist UTC+2 (Winter) oder UTC+3 (Sommer).\n"
+            "  Stimmt das nicht, sind alle Handelszeitfenster um Stunden verschoben.\n"
+            "  Prüfen: Liegt das Tagesvolumen-Maximum gegen 13-15 Uhr? Sonst --tz-shift setzen."
+        )
+    if args.dry_run:
+        print("\n  Trockenlauf - es wurde nichts geschrieben.")
+    else:
+        fehlend = [tf.value for tf in cfg.data.all_timeframes if tf.value not in report.written]
+        if fehlend:
+            print(
+                f"\n  Für {', '.join(fehlend)} liegen keine Daten vor - die Datei ist gröber "
+                "als diese Zeitebenen. Feinere Daten importieren oder die Konfiguration anpassen."
+            )
+        else:
+            print(f"\n  Fertig. Jetzt möglich: python main.py backtest -s {args.symbol}")
+    return 0
+
+
 def cmd_walkforward(args: argparse.Namespace) -> int:
     """Vorwärtstest - trainieren auf Vergangenem, prüfen auf Folgendem."""
     cfg = _load_config(args)
@@ -430,7 +520,10 @@ def cmd_walkforward(args: argparse.Namespace) -> int:
                 continue
             ensemble = ModelEnsemble(cfg.model)
             try:
-                ensemble.fit(X.iloc[train_idx], y[train_idx], w[train_idx], exits[train_idx])
+                # Purging arbeitet relativ zum übergebenen Ausschnitt - bei einem
+                # rollenden Fenster muss der Startversatz abgezogen werden.
+                rel_exits = exits[train_idx] - int(train_idx[0])
+                ensemble.fit(X.iloc[train_idx], y[train_idx], w[train_idx], rel_exits)
                 proba = ensemble.predict_proba(X.iloc[test_idx])
             except Exception as exc:
                 print(f"  {k:<9}Fehler: {exc}")
@@ -694,6 +787,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--symbol", "-s", help="Symbol(e), kommagetrennt")
     p.add_argument("--bars", "-n", type=int, help="Anzahl Balken je Zeiteinheit")
 
+    p = add("import", cmd_import, "eigene Kursdaten aus CSV übernehmen")
+    p.add_argument("file", help="CSV-Datei mit Kursdaten")
+    p.add_argument("--symbol", "-s", required=True, help="Symbolname, z. B. EURUSD")
+    p.add_argument("--tz-shift", type=float, default=0.0,
+                   help="Stunden, die von den Zeiten abgezogen werden, um UTC zu erhalten "
+                        "(MT5-Serverzeit ist meist UTC+2 oder UTC+3)")
+    p.add_argument("--timeframe", help="Zeiteinheit erzwingen statt sie zu erkennen")
+    p.add_argument("--dry-run", action="store_true", help="nur prüfen, nichts schreiben")
+
     p = add("analyse", cmd_analyse, "aktuelle Lage und Signal")
     p.add_argument("--symbol", "-s", help="Symbol(e), kommagetrennt")
     p.add_argument("--bars", "-n", type=int, help="Anzahl Balken")
@@ -706,6 +808,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--record", action="store_true", help="Trades ins Journal schreiben")
     p.add_argument("--trials", type=int, default=1,
                    help="Zahl ausprobierter Varianten - korrigiert die Sharpe Ratio nach unten")
+    p.add_argument("--folds", type=int, default=5, help="Zahl der Vorwärtsfenster")
+    p.add_argument("--train-frac", type=float, default=0.6,
+                   help="Anteil der Historie für das erste Training")
+    p.add_argument("--rolling", action="store_true",
+                   help="rollendes statt wachsendes Trainingsfenster")
+    p.add_argument("--in-sample", action="store_true",
+                   help="NUR ZUR FEHLERSUCHE: Champion über die eigene Trainingshistorie laufen "
+                        "lassen. Das Ergebnis ist systematisch zu gut.")
 
     p = add("train", cmd_train, "Modell anlernen")
     p.add_argument("--symbol", "-s", help="Symbol(e), kommagetrennt")

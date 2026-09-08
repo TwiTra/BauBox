@@ -48,7 +48,8 @@ echo ===========================================================================
 echo.
 echo    1  Status          Was ist da? Daten, Modelle, Journal
 echo    2  Verbindung      MT5-Terminal pruefen
-echo    3  Daten laden     Historie herunterladen
+echo    3  Daten laden     Historie vom Broker herunterladen
+echo   13  CSV einlesen    eigene Kursdaten uebernehmen
 echo    4  Selbsttest      interne Pruefungen (Lookahead!)
 echo    5  Analyse         aktuelle Lage und Signal
 echo    6  Backtest        Strategie auf der Historie pruefen
@@ -74,5 +75,12 @@ if "%wahl%"=="9"  ( python main.py evolve & pause & goto menu )
 if "%wahl%"=="10" ( python main.py feedback & pause & goto menu )
 if "%wahl%"=="11" ( python main.py live & pause & goto menu )
 if "%wahl%"=="12" ( python main.py live --real & pause & goto menu )
+if "%wahl%"=="13" (
+    set /p csv="   Pfad zur CSV-Datei: "
+    set /p sym="   Symbol (z.B. EURUSD): "
+    set /p tz="   Zeitversatz in Stunden (MT5 meist 2 oder 3, sonst 0): "
+    python main.py import "%csv%" -s "%sym%" --tz-shift %tz%
+    pause & goto menu
+)
 if "%wahl%"=="0"  ( exit /b 0 )
 goto menu

@@ -123,7 +123,16 @@ Der Teil, den man vollständig kontrollieren kann.
 * Tages-, Wochen- und Gesamtverlustgrenze mit hartem Notaus.
 * Nach Verlustserien wird die Positionsgröße automatisch kleiner.
 
-### 6. Die Lernschleife
+### 6. Positionsführung, die einen Neustart übersteht
+
+MetaTrader kennt weder den ursprünglichen Stop noch die Zahl der bereits
+genommenen Teilgewinne. Diese Angaben führt das System selbst - und legt sie im
+Journal ab. Ohne diese Ablage begänne der Bot nach jedem Stromausfall oder
+Windows-Update bei null: Er hielte den längst nachgezogenen Stop für den
+ursprünglichen (im Test ein Risiko-Fehlfaktor von 10), verlöre die restlichen
+Teilziele und schaltete den Zeitausstieg stillschweigend ab.
+
+### 7. Die Lernschleife
 
 ```
 Handeln → Journal → Fehleranalyse → Sperren
@@ -201,9 +210,10 @@ set MT5_SERVER=Broker-Server
 | `init` | Konfigurationsdatei anlegen |
 | `status` | Überblick: Daten, Modelle, Journal |
 | `connect` | MT5-Verbindung und Symbole prüfen |
-| `fetch` | Historie herunterladen |
+| `fetch` | Historie vom Broker herunterladen |
+| `import` | eigene Kursdaten aus CSV übernehmen (MT4/MT5/Dukascopy/allgemein) |
 | `analyse` | Aktuelle Lage und Signal, mit Begründung |
-| `backtest` | Strategie auf der Historie, mit vollem Kostenmodell |
+| `backtest` | Strategie auf der Historie. Mit Modell **vorwärts**: je Fenster ein eigenes, blindes Modell |
 | `train` | Modell anlernen |
 | `walkforward` | Vorwärtstest – die ehrlichste Prüfung |
 | `evolve` | Lernschleife: nachtrainieren, vergleichen, ggf. ablösen |
@@ -216,6 +226,26 @@ Nützliche Schalter: `-s EURUSD,GBPUSD` wählt Symbole, `-n 20000` die Balkenzah
 `-v` schaltet ausführliche Protokollierung ein.
 
 ---
+
+## Eigene Kursdaten einlesen
+
+Wer Minutendaten hat, braucht für die Auswertung kein Terminal:
+
+```bash
+python main.py import EURUSD_M1.csv --symbol EURUSD --tz-shift 2
+```
+
+Erkannt werden die üblichen Ausgabeformate von selbst - MT5 („Bars exportieren",
+Tabulator, Kopfzeile in spitzen Klammern), MT4-Historie ohne Kopfzeile,
+Dukascopy, sowie allgemeine Dateien mit Semikolon oder deutschem Dezimalkomma.
+Die Datei wird auf alle konfigurierten Zeitebenen verdichtet und abgelegt.
+
+**Der Zeitversatz ist der wichtigste Schalter.** MT5 exportiert in *Serverzeit*,
+meist UTC+2 im Winter und UTC+3 im Sommer; gerechnet wird durchgehend in UTC.
+Ohne `--tz-shift` sind sämtliche Handelszeitfenster um Stunden verschoben, und
+man misst etwas anderes, als man glaubt. Zur Probe: Das Umsatzmaximum eines
+Devisenpaares liegt in UTC gegen 13-15 Uhr. Liegt es woanders, stimmt der
+Versatz nicht. Mit `--dry-run` lässt sich das prüfen, ohne etwas zu schreiben.
 
 ## Der Weg zum Livebetrieb
 
@@ -244,13 +274,30 @@ Liegt die mittlere AUC unter etwa 0,52 oder ist sie nur in der Hälfte der Fenst
 Parametern – das erzeugt nur einen Vorteil, der aus dem Optimieren stammt und live
 sofort verschwindet.
 
-**4. Backtest mit ehrlicher Zählung.** `--trials` gibt an, wie viele Varianten
-ausprobiert wurden. Der Deflated Sharpe korrigiert das Ergebnis entsprechend nach
-unten – wer zwanzig Konfigurationen durchprobiert hat, gibt `--trials 20` an.
+**4. Backtest.** Sobald ein Modell im Spiel ist, läuft er **vorwärts**: Die
+Historie wird in Fenster geteilt, für jedes entsteht ein eigenes Modell aus
+ausschließlich früheren Daten, und gehandelt wird nur im Fenster selbst. Kein
+Balken wird also von einem Modell gehandelt, das ihn kannte.
 
 ```bash
-python main.py backtest --trials 20
+python main.py backtest --trials 20 --folds 6
 ```
+
+`--trials` gibt an, wie viele Varianten ausprobiert wurden; der Deflated Sharpe
+korrigiert das Ergebnis entsprechend nach unten.
+
+Zum Vergleich, gemessen auf identischen Daten:
+
+| | in-sample | vorwärts |
+|---|---|---|
+| Gewinn | +80,7 % | +4,7 % |
+| Trefferquote | 77,7 % | 60,0 % |
+| Sharpe | 2,57 | 0,35 |
+| max. Rückgang | 3,25 % | 7,05 % |
+
+Dieselbe Strategie, dieselben Kurse. Der Unterschied ist allein, ob das Modell
+die Antworten schon kannte. `--in-sample` erzwingt den linken Weg – nur zur
+Fehlersuche, mit entsprechender Warnung im Bericht.
 
 **5. Trockenlauf, mehrere Wochen.** Volle Mechanik, keine echten Orders.
 
@@ -299,6 +346,9 @@ zustande kommt. 0,58 wäre schon extrem eng.
 * **Kein Martingale, kein Grid, kein Averaging-down.** Diese Verfahren erzeugen
   jahrelang glatte Kurven und dann einen Totalverlust.
 * **Keine Positionen ohne Stop.** Ausnahmslos.
+* **Kein in-sample-Backtest als Standard.** Sobald ein Modell mitspielt, wird
+  vorwärts gerechnet; das geschönte Ergebnis gibt es nur auf ausdrückliche
+  Anforderung und mit Warnung.
 * **Kein automatisches Schließen beim Beenden.** Offene Positionen tragen
   serverseitige Stops und Ziele, die auch ohne laufenden Bot greifen. Sie beim
   Beenden zu schließen hieße, jeden Neustart mit einem realisierten Verlust zu
@@ -326,7 +376,7 @@ tradingbot/
     learning/    Journal, Fehleranalyse, Weiterentwicklung
     live/        Wächter, Hauptschleife
     cli.py       Kommandozeile
-  tests/         159 Tests
+  tests/         189 Tests
 ```
 
 ```bash

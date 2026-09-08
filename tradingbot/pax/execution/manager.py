@@ -13,7 +13,7 @@ geändert, was sich nennenswert bewegt hat.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timezone
 
 from ..config import RiskConfig
@@ -51,14 +51,91 @@ class ManagedState:
     signal_score: float = 0.0
     reasons: list[str] = field(default_factory=list)
 
+    def to_dict(self) -> dict:
+        data = asdict(self)
+        data["opened_at"] = self.opened_at.isoformat() if self.opened_at else None
+        return data
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ManagedState":
+        """Zustand aus der Ablage zurücklesen.
+
+        Jeder Wert wird auf seinen erwarteten Typ gebracht; was sich nicht
+        umwandeln lässt, fällt auf den Standard zurück. Die Ablage ist eine
+        Datei, die jederzeit beschädigt oder von Hand verändert sein kann - ein
+        falscher Typ darf nicht die Live-Schleife anhalten.
+        """
+        if not isinstance(data, dict):
+            return cls()
+        kwargs: dict = {}
+        for f in fields(cls):
+            if f.name not in data:
+                continue
+            wert = data[f.name]
+            try:
+                if f.name == "opened_at":
+                    kwargs[f.name] = (
+                        datetime.fromisoformat(wert) if isinstance(wert, str) else wert
+                    )
+                elif f.name in ("partials_done", "max_hold_minutes"):
+                    kwargs[f.name] = int(wert)
+                elif f.name == "break_even_done":
+                    kwargs[f.name] = bool(wert)
+                elif f.name in ("targets", "fractions"):
+                    kwargs[f.name] = [float(x) for x in wert]
+                elif f.name == "reasons":
+                    kwargs[f.name] = [str(x) for x in wert]
+                else:
+                    kwargs[f.name] = float(wert)
+            except (TypeError, ValueError):
+                log.warning(
+                    "Feld '%s' im gesicherten Zustand unbrauchbar (%r) - Standard wird benutzt",
+                    f.name, wert,
+                )
+        return cls(**kwargs)
+
 
 class TradeManager:
     """Führt offene Positionen nach den Regeln der Konfiguration."""
 
-    def __init__(self, broker: object, risk_cfg: RiskConfig) -> None:
+    def __init__(self, broker: object, risk_cfg: RiskConfig, store: object = None) -> None:
         self.broker = broker
         self.cfg = risk_cfg
         self.state: dict[int, ManagedState] = {}
+        # Ablage (üblicherweise das Journal). Ohne sie beginnt der Bot nach
+        # jedem Neustart bei null: Teilgewinne würden ein zweites Mal genommen,
+        # das Risiko falsch gerechnet und der Zeitausstieg stillschweigend
+        # abgeschaltet.
+        self.store = store
+        self._saved: dict[int, ManagedState] = {}
+        self._load_saved()
+
+    def _load_saved(self) -> None:
+        if self.store is None:
+            return
+        try:
+            raw = self.store.load_position_states()  # type: ignore[attr-defined]
+        except Exception as exc:  # pragma: no cover - defekte Ablage darf nicht stoppen
+            log.warning("Gesicherte Positionszustände nicht lesbar: %s", exc)
+            return
+        for ticket, data in raw.items():
+            try:
+                self._saved[int(ticket)] = ManagedState.from_dict(data)
+            except Exception as exc:  # pragma: no cover
+                log.warning("Zustand für Ticket %s unbrauchbar: %s", ticket, exc)
+        if self._saved:
+            log.info("%d gesicherte Positionszustände geladen", len(self._saved))
+
+    def _persist(self, ticket: int, symbol: str = "") -> None:
+        if self.store is None:
+            return
+        state = self.state.get(ticket)
+        if state is None:
+            return
+        try:
+            self.store.save_position_state(ticket, symbol, state.to_dict())  # type: ignore[attr-defined]
+        except Exception as exc:  # pragma: no cover
+            log.warning("Positionszustand %s nicht speicherbar: %s", ticket, exc)
 
     # ------------------------------------------------------------------ #
 
@@ -82,9 +159,16 @@ class TradeManager:
             signal_score=signal_score,
             reasons=list(reasons or []),
         )
+        self._persist(position.ticket, position.symbol)
 
     def forget(self, ticket: int) -> None:
         self.state.pop(ticket, None)
+        self._saved.pop(ticket, None)
+        if self.store is not None:
+            try:
+                self.store.delete_position_state(ticket)  # type: ignore[attr-defined]
+            except Exception as exc:  # pragma: no cover
+                log.warning("Positionszustand %s nicht löschbar: %s", ticket, exc)
 
     def sync(self, positions: list[Position]) -> None:
         """Zustand mit dem Terminal abgleichen.
@@ -98,9 +182,22 @@ class TradeManager:
             if ticket not in live:
                 self.forget(ticket)
         for p in positions:
-            if p.ticket not in self.state:
-                log.info("Unbekannte Position %s übernommen (%s %s)", p.ticket, p.symbol, p.direction.value)
-                self.register(p)
+            if p.ticket in self.state:
+                continue
+            saved = self._saved.pop(p.ticket, None)
+            if saved is not None:
+                # Nach einem Neustart zählt der gesicherte Zustand, nicht der
+                # aktuelle Stop: Der ist womöglich längst nachgezogen, und mit
+                # ihm als "initial_stop" wäre jede R-Rechnung falsch.
+                self.state[p.ticket] = saved
+                log.info(
+                    "Position %s aus der Ablage wiederhergestellt (%s, %d Teilgewinn(e) bereits "
+                    "genommen, Ausgangsstop %.5f)",
+                    p.ticket, p.symbol, saved.partials_done, saved.initial_stop,
+                )
+                continue
+            log.info("Unbekannte Position %s übernommen (%s %s)", p.ticket, p.symbol, p.direction.value)
+            self.register(p)
 
     # ------------------------------------------------------------------ #
 
@@ -121,6 +218,10 @@ class TradeManager:
             except Exception as exc:
                 log.warning("Kurs für %s nicht abrufbar: %s", pos.symbol, exc)
                 continue
+
+            # Statt jede einzelne Änderungsstelle zu bestücken (und irgendwann
+            # eine zu vergessen) wird der Zustand vorher und nachher verglichen.
+            before = state.to_dict()
 
             is_long = pos.direction is Direction.LONG
             # Bewertungskurs ist immer der Kurs, zu dem geschlossen würde
@@ -144,6 +245,9 @@ class TradeManager:
             action = self._time_exit(pos, state, now)
             if action:
                 actions.append(action)
+
+            if pos.ticket in self.state and state.to_dict() != before:
+                self._persist(pos.ticket, pos.symbol)
         return actions
 
     # ------------------------------------------------------------------ #

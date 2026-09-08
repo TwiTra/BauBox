@@ -73,14 +73,40 @@ def load_data(
         except Exception as exc:
             log.warning("Daten für %s nicht vom Terminal ladbar: %s", symbol, exc)
 
-    cached = {}
+    # Der Zwischenspeicher zählt, sobald die Basisebene brauchbar ist. Gröbere
+    # Ebenen dürfen fehlen oder dünn sein - der Merkmalsaufbau übergeht sie dann
+    # mit einer Meldung. Früher musste *jede* Ebene 200 Balken haben; wer 60 Tage
+    # Minutendaten importierte, bekam dadurch nur 52 Tageskerzen, scheiterte an
+    # dieser Hürde und landete stillschweigend wieder bei synthetischen Daten.
+    base_tf = cfg.data.base_timeframe
+    #: Weniger Balken kann `FeatureBuilder.build_single` nicht auswerten
+    MIN_BARS = 60
+    cached: dict[str, pd.DataFrame] = {}
+    duenn: list[str] = []
     for tf in timeframes:
         df = store.read(symbol, tf)
-        if len(df) >= 200:
-            cached[Timeframe.parse(tf).value] = df.tail(bars)
-    if len(cached) == len(timeframes):
-        log.info("%s aus dem Zwischenspeicher geladen", symbol)
+        name = Timeframe.parse(tf).value
+        if len(df) >= MIN_BARS:
+            cached[name] = df.tail(bars)
+        elif len(df):
+            duenn.append(f"{name} ({len(df)})")
+
+    base_bars = len(cached.get(base_tf.value, ()))
+    if base_bars >= max(MIN_BARS, cfg.data.warmup_bars // 2):
+        fehlend = [t.value for t in timeframes if t.value not in cached]
+        if fehlend:
+            log.warning(
+                "%s: %s fehlt oder ist zu dünn%s - diese Zeitebene wird übergangen",
+                symbol, ", ".join(fehlend), f" ({'; '.join(duenn)})" if duenn else "",
+            )
+        log.info("%s aus dem Zwischenspeicher geladen (%d Balken auf %s)",
+                 symbol, base_bars, base_tf.value)
         return DataBundle(symbol, cached, _default_spec(symbol), "cache")
+    if cached:
+        log.warning(
+            "%s: im Zwischenspeicher liegen nur %d Balken auf %s - zu wenig für eine Auswertung",
+            symbol, base_bars, base_tf.value,
+        )
 
     if not allow_synthetic:
         raise MT5Unavailable(
