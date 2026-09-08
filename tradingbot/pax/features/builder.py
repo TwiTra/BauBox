@@ -169,6 +169,7 @@ class FeatureBuilder:
         """
         if not frames:
             raise ValueError("Keine Kursdaten übergeben")
+        frames = {k: _saubere_kurse(v, k) for k, v in frames.items()}
         tfs = {Timeframe.parse(k): v for k, v in frames.items()}
         base_tf = Timeframe.parse(base_timeframe) if base_timeframe else min(tfs, key=lambda t: t.minutes)
         base_df = tfs[base_tf]
@@ -282,6 +283,34 @@ def _sanitize(frame: pd.DataFrame) -> pd.DataFrame:
     numeric = out.select_dtypes(include=[np.number]).columns
     out[numeric] = out[numeric].clip(-1e6, 1e6)
     return out
+
+
+def _saubere_kurse(df: pd.DataFrame, name: str = "") -> pd.DataFrame:
+    """Balken mit unbrauchbaren Kursen entfernen.
+
+    Ein einzelner defekter Tick vom Broker darf den Livebetrieb nicht beenden.
+    Ohne diese Prüfung stirbt schon das Volumenprofil an einem unendlichen
+    Kurs (numpy kann über einen nicht-endlichen Bereich kein Histogramm
+    bilden) - und zwar mit einem Fehler, der nichts über die Ursache sagt.
+
+    Verworfen statt ersetzt: Ein erfundener Kurs wäre eine stille Lüge, ein
+    fehlender Balken nur eine Lücke, mit denen das System ohnehin umgehen muss.
+    """
+    if df is None or len(df) == 0:
+        return df
+    spalten = [c for c in ("open", "high", "low", "close") if c in df.columns]
+    if not spalten:
+        return df
+    werte = df[spalten].replace([np.inf, -np.inf], np.nan)
+    gut = werte.notna().all(axis=1) & (werte > 0).all(axis=1)
+    if bool(gut.all()):
+        return df
+    verworfen = int((~gut).sum())
+    log.warning(
+        "%s: %d Balken mit unbrauchbaren Kursen verworfen (unendlich, fehlend oder <= 0)",
+        name or "Kursdaten", verworfen,
+    )
+    return df[gut]
 
 
 def assert_causal(

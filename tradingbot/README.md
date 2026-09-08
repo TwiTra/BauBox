@@ -57,6 +57,41 @@ Kommission allein fressen rund ein Viertel des Bruttoergebnisses. Der PSR von
 vorliegt, ist gering. Bei 16 bis 34 Trades ist umgekehrt auch das Gegenteil
 nicht bewiesen — die Stichprobe ist für beides zu klein.
 
+### Warum M15 die falsche Zeitebene ist
+
+Die Frage „drei Gewinne auf einen Verlust – geht das?" lässt sich auf diesen
+Daten beantworten. **Ja, die Trefferquote ist erreichbar** – bei einem Ziel von
+⅓ der Stopdistanz liegt sie bei 71,5 % (M15) bzw. 74,1 % (H4). Nur verdient
+das nichts: Eine hohe Trefferquote, die mit einem engen Ziel erkauft ist, ist
+Arithmetik, kein Vorteil.
+
+Entscheidend ist das Produkt aus beidem – und dort zeigt sich das eigentliche
+Problem:
+
+| Basis | ATR (Median) | Kosten je Trade | bestes Brutto-E[R] | t (überlappungsbereinigt) |
+|---|---|---|---|---|
+| M15 | 60 Punkte | **0,248 R** | −0,031 R | **−2,73** |
+| H1 | 126 Punkte | 0,119 R | −0,043 R | −1,91 |
+| H4 | 250 Punkte | 0,060 R | **+0,053 R** | +1,27 |
+
+Bei 15 Punkten Kosten (Spread plus Schlupf) und einem ATR von 60 Punkten zahlt
+ein M15-Trade **ein Viertel seines Risikos**, bevor er überhaupt beginnt. Auf H4
+sind es 6 Prozent.
+
+Der einzige statistisch gesicherte Befund ist ein negativer: **Auf M15 verliert
+das Regelwerk Geld, schon vor Kosten** (t = −2,73 bzw. −3,25, Schranke 2,6 bei
+sechs geprüften Varianten). Der positive Bruttowert auf H4 ist mit t = +1,27
+nicht gesichert – die 1 356 Beobachtungen überlappen sich im Schnitt 3,2-fach,
+die effektive Stichprobe beträgt nur 419.
+
+Ein Vorwärtstest auf H4-Basis ergab 4 Trades, davon 3 Gewinne, +0,62 R je Trade.
+Das ist genau das gewünschte 3:1 – und bei vier Trades genau das, was auch Glück
+liefert. Der Bericht weist selbst darauf hin, dass 65 % des Ergebnisses aus einem
+einzigen Fenster stammen.
+
+**Was daraus folgt:** Mehr Historie auf H4, ein Broker mit engeren Spreads, und
+kein M15. Nicht: an den Schwellen drehen, bis die Kurve stimmt.
+
 Das Meta-Modell ist die Vorgabe, weil es auf denselben Daten den besten
 Erwartungswert liefert und mehr als doppelt so viele Gelegenheiten findet. Es
 beantwortet die Frage „hätte *dieser* Trade funktioniert?" direkt, statt sie aus
@@ -439,7 +474,7 @@ tradingbot/
     learning/    Journal, Fehleranalyse, Weiterentwicklung
     live/        Wächter, Hauptschleife
     cli.py       Kommandozeile
-  tests/         222 Tests
+  tests/         234 Tests
 ```
 
 ```bash

@@ -15,6 +15,8 @@ auftauchen, sind so weitgehend ausgeschlossen.
 
 from __future__ import annotations
 
+import numpy as np
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -166,6 +168,29 @@ class MT5Broker(Broker):
 # --------------------------------------------------------------------------- #
 
 
+def _volumen_fehler(volume: float, spec: "SymbolSpec | None") -> str:
+    """Grund, warum ein Volumen unzulässig ist - oder ein leerer Text."""
+    try:
+        v = float(volume)
+    except (TypeError, ValueError):
+        return f"Volumen ist keine Zahl: {volume!r}"
+    if not np.isfinite(v) or v <= 0:
+        return f"Volumen muss positiv sein, war {v}"
+    if spec is None:
+        return ""
+    if v < spec.volume_min - 1e-9:
+        return f"Volumen {v} unter dem Mindestlot {spec.volume_min}"
+    maximum = getattr(spec, "volume_max", 0.0) or 0.0
+    if maximum > 0 and v > maximum + 1e-9:
+        return f"Volumen {v} über dem Höchstlot {maximum}"
+    schritt = getattr(spec, "volume_step", 0.0) or 0.0
+    if schritt > 0:
+        rest = abs((v / schritt) - round(v / schritt))
+        if rest > 1e-6:
+            return f"Volumen {v} ist kein Vielfaches der Schrittweite {schritt}"
+    return ""
+
+
 class PaperBroker(Broker):
     """Vollständig simulierter Broker - für Tests des Live-Ablaufs ohne Terminal."""
 
@@ -224,8 +249,17 @@ class PaperBroker(Broker):
         self, symbol: str, direction: Direction, volume: float,
         stop_loss: float = 0.0, take_profit: float = 0.0, comment: str = "",
     ) -> OrderResult:
+        # Wie ein echter Broker prüfen. Ohne das nimmt der Papierbetrieb
+        # Aufträge an, die MT5 ablehnen würde - der Trockenlauf sähe dann
+        # sauber aus und live schlüge derselbe Auftrag fehl.
+        spec = self.symbol_spec(symbol)
+        fehler = _volumen_fehler(volume, spec)
+        if fehler:
+            return OrderResult(False, message=fehler)
         tick = self.tick(symbol)
         price = tick["ask"] if direction is Direction.LONG else tick["bid"]
+        if not np.isfinite(price) or price <= 0:
+            return OrderResult(False, message=f"kein gültiger Kurs für {symbol}")
         self._ticket += 1
         self._positions[self._ticket] = Position(
             ticket=self._ticket, symbol=symbol, direction=direction, volume=volume,

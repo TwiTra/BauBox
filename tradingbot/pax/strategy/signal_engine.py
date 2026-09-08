@@ -258,6 +258,12 @@ class SignalEngine:
         )
 
         if direction is Direction.FLAT or atr <= 0:
+            # Ohne ATR gibt es keinen Stop und damit keinen Trade. Dann darf im
+            # Bericht auch keine Richtung stehen: Eine Nulllinie als "short" zu
+            # melden ist irreführend, auch wenn ohnehin nicht gehandelt würde.
+            if atr <= 0:
+                signal.direction = Direction.FLAT
+                signal.warnings = ["keine Schwankungsbreite (ATR = 0)"] + signal.warnings
             signal.reasons = ["kein ausreichender Vorteil erkennbar"] + signal.reasons[:2]
             return signal
 
