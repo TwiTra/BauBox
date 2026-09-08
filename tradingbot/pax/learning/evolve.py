@@ -127,7 +127,7 @@ class Evolver:
         fs = self.builder.build(frames, symbol=symbol)
         lb = self.cfg.labels
         y, usable, res = direction_labels(
-            fs.base, fs.atr, lb.tp_atr, lb.sl_atr, lb.max_horizon_bars, lb.min_return_atr
+            fs.base, fs.atr, lb.direction_atr, lb.max_horizon_bars, lb.min_return_atr
         )
         w = sample_weights(res, lb.sample_weight_decay, lb.apply_uniqueness_weights)
         mask = usable.to_numpy(dtype=bool)

@@ -144,7 +144,7 @@ def walk_forward_backtest(
     # --- Zielvariable und Gewichte über die gesamte Reihe ------------------ #
     lb = cfg.labels
     y_all, usable, barriers = direction_labels(
-        fs.base, fs.atr, lb.tp_atr, lb.sl_atr, lb.max_horizon_bars, lb.min_return_atr
+        fs.base, fs.atr, lb.direction_atr, lb.max_horizon_bars, lb.min_return_atr
     )
     w_all = sample_weights(barriers, lb.sample_weight_decay, lb.apply_uniqueness_weights)
     mask = usable.to_numpy(dtype=bool)

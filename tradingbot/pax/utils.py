@@ -202,6 +202,36 @@ def chunked(seq: Sequence[T], size: int) -> Iterable[Sequence[T]]:
         yield seq[i : i + size]
 
 
+def to_utc_index(index, tz: "str | None" = None, shift_hours: float = 0.0):
+    """Zeitstempel nach UTC bringen - über eine benannte Zeitzone oder festen Versatz.
+
+    Die benannte Variante ist der Regelfall für MT5-Daten: Die meisten Server
+    laufen auf EET/EEST, also UTC+2 im Winter und UTC+3 im Sommer. Ein fester
+    Versatz wäre damit ein halbes Jahr lang um eine Stunde daneben - und mit ihm
+    jedes Handelszeitfenster.
+
+    Rückgabe: (Index in UTC, Zahl der verworfenen mehrdeutigen Zeitstempel).
+    An der Zeitumstellung im Herbst gibt es eine Stunde doppelt; diese Werte
+    lassen sich nicht auflösen und werden verworfen statt geraten.
+    """
+    import pandas as pd
+
+    index = pd.DatetimeIndex(index)
+    if tz:
+        if index.tz is not None:
+            return index.tz_convert("UTC"), 0
+        lokal = index.tz_localize(tz, ambiguous="NaT", nonexistent="shift_forward")
+        verworfen = int(lokal.isna().sum())
+        return lokal.tz_convert("UTC"), verworfen
+    if index.tz is None:
+        index = index.tz_localize("UTC")
+    else:
+        index = index.tz_convert("UTC")
+    if shift_hours:
+        index = index - pd.Timedelta(hours=shift_hours)
+    return index, 0
+
+
 def fmt_money(value: float, currency: str = "EUR") -> str:
     return f"{value:,.2f} {currency}".replace(",", " ")
 

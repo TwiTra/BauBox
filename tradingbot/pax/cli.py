@@ -77,7 +77,7 @@ def _prepare_training_data(cfg: Config, bundle) -> tuple:
     fs = FeatureBuilder(cfg).build(bundle.frames, symbol=bundle.symbol, digits=bundle.spec.digits)
     lb = cfg.labels
     y, usable, res = direction_labels(
-        fs.base, fs.atr, lb.tp_atr, lb.sl_atr, lb.max_horizon_bars, lb.min_return_atr
+        fs.base, fs.atr, lb.direction_atr, lb.max_horizon_bars, lb.min_return_atr
     )
     w = sample_weights(res, lb.sample_weight_decay, lb.apply_uniqueness_weights)
     mask = usable.to_numpy(dtype=bool)
@@ -325,7 +325,10 @@ def cmd_backtest(args: argparse.Namespace) -> int:
         fs = FeatureBuilder(cfg).build(bundle.frames, symbol=symbol, digits=bundle.spec.digits)
         model = registry.load(symbol) if not args.rules_only else None
 
-        if model is not None and not args.in_sample:
+        # Der Vorwärtsmodus braucht keinen vorhandenen Champion - er trainiert
+        # für jedes Fenster ohnehin ein eigenes Modell. Ihn davon abhängig zu
+        # machen, hieße den ehrlichen Weg hinter einer Hürde zu verstecken.
+        if not args.rules_only and not args.in_sample:
             # Standardweg, sobald ein Modell mitspielt: je Fenster ein eigenes
             # Modell, das nur frühere Daten kannte. Dauert länger und ist die
             # einzige Zahl, auf die man eine Entscheidung stützen darf.
@@ -344,6 +347,10 @@ def cmd_backtest(args: argparse.Namespace) -> int:
             print(format_walkforward_report(wf, "EUR", n_trials=args.trials,
                                             periods_per_year=_periods_per_year(cfg)))
             result = wf.backtest
+        elif args.in_sample and model is None:
+            print("\n  --in-sample verlangt einen trainierten Champion. Erst 'train' ausführen,")
+            print("  oder --rules-only für einen Test ohne Modell verwenden.")
+            continue
         else:
             engine = SignalEngine(cfg, model, blocklist=blocklist)
             signals = engine.generate_series(fs, bundle.spec)
@@ -433,12 +440,33 @@ def cmd_import(args: argparse.Namespace) -> int:
     from .features.mtf import resample_ohlcv
 
     _headline(f"Kursdaten einlesen: {args.file}")
-    report = ImportReport(symbol=args.symbol)
-    try:
-        df = read_csv_bars(args.file, tz_shift_hours=args.tz_shift, report=report)
-    except (FileNotFoundError, ValueError) as exc:
-        print(f"\n  {exc}")
-        return 1
+    if args.ticks:
+        from .data.tick_import import TickReport, aggregate_ticks
+
+        tick_report = TickReport()
+        print("\n  Tickmodus - die Datei wird blockweise zu Kerzen verdichtet.")
+        try:
+            df = aggregate_ticks(
+                args.file, args.timeframe or "M1", tz_shift_hours=args.tz_shift,
+                tz=args.tz, report=tick_report,
+            )
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"\n  {exc}")
+            return 1
+        print("\n" + tick_report.summary())
+        report = ImportReport(
+            symbol=args.symbol, path=str(args.file), rows_read=tick_report.ticks,
+            rows_kept=len(df), timeframe=tick_report.timeframe,
+            first=tick_report.first, last=tick_report.last,
+            tz_shift_hours=tick_report.tz_shift_hours, tz=tick_report.tz,
+        )
+    else:
+        report = ImportReport(symbol=args.symbol)
+        try:
+            df = read_csv_bars(args.file, tz_shift_hours=args.tz_shift, tz=args.tz, report=report)
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"\n  {exc}")
+            return 1
     if df.empty:
         print("\n  Keine brauchbaren Zeilen gefunden.")
         return 1
@@ -463,9 +491,13 @@ def cmd_import(args: argparse.Namespace) -> int:
         if not args.dry_run:
             store.write(args.symbol, tf, verdichtet)
         report.written[tf.value] = len(verdichtet)
+        print(f"    {tf.value:<4} {len(verdichtet):>8} Kerzen")
 
-    print("\n" + report.summary())
-    if args.tz_shift == 0:
+    if not args.ticks:
+        print("\n" + report.summary())
+    elif report.written:
+        print("  geschrieben        " + ", ".join(f"{k}: {v}" for k, v in report.written.items()))
+    if args.tz_shift == 0 and not args.tz:
         print(
             "\n  ZEITZONE: Es wurde keine Verschiebung angegeben, die Zeiten gelten also als UTC.\n"
             "  MT5 exportiert in Serverzeit - meist UTC+2 (Winter) oder UTC+3 (Sommer).\n"
@@ -790,9 +822,14 @@ def build_parser() -> argparse.ArgumentParser:
     p = add("import", cmd_import, "eigene Kursdaten aus CSV übernehmen")
     p.add_argument("file", help="CSV-Datei mit Kursdaten")
     p.add_argument("--symbol", "-s", required=True, help="Symbolname, z. B. EURUSD")
+    p.add_argument("--ticks", action="store_true",
+                   help="die Datei enthält Ticks (Bid/Ask), keine fertigen Kerzen")
+    p.add_argument("--tz", help="Zeitzone der Datei, z. B. Europe/Athens für einen "
+                                "EET-Broker. Behandelt die Sommerzeit richtig und ist "
+                                "deshalb --tz-shift vorzuziehen.")
     p.add_argument("--tz-shift", type=float, default=0.0,
-                   help="Stunden, die von den Zeiten abgezogen werden, um UTC zu erhalten "
-                        "(MT5-Serverzeit ist meist UTC+2 oder UTC+3)")
+                   help="fester Stundenversatz auf UTC. Nur nutzen, wenn der Server keine "
+                        "Sommerzeit kennt - sonst ist der Wert ein halbes Jahr lang falsch.")
     p.add_argument("--timeframe", help="Zeiteinheit erzwingen statt sie zu erkennen")
     p.add_argument("--dry-run", action="store_true", help="nur prüfen, nichts schreiben")
 

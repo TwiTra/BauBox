@@ -39,6 +39,37 @@ log = get_logger("signal")
 CONVICTION_GAIN = 4.0
 
 
+# Ein gerichteter Vorteil wird in Log-Odds gerechnet. Dort ist "kein Vorteil"
+# exakt die Null, und Vorteile aus verschiedenen Quellen addieren sich sauber.
+RULE_EDGE_GAIN = 0.65  # bewusst zurückhaltend: volle Regelstärke ~ Log-Odds 0.65
+
+
+def _logit(p: float) -> float:
+    p = float(min(max(p, 1e-6), 1.0 - 1e-6))
+    return float(np.log(p / (1.0 - p)))
+
+
+def _sigmoid(x: float) -> float:
+    return float(1.0 / (1.0 + np.exp(-float(x))))
+
+
+def _win_probability(edge_logodds: float, reward_risk: float) -> float:
+    """Gewinnwahrscheinlichkeit eines Trades mit gegebenem CRV.
+
+    Ausgangspunkt ist der faire Wert: Ein driftloser Zufallspfad trifft ein
+    Ziel im Abstand `reward_risk` vor einem Stop im Abstand 1 mit der
+    Wahrscheinlichkeit 1/(1+CRV). Genau dort ist der Erwartungswert null.
+    Der gerichtete Vorteil verschiebt diesen Anker in Log-Odds.
+
+    Das ist der Unterschied, auf den es ankommt: Eine Richtungswahrschein-
+    lichkeit von 0.5 bedeutet "keine Meinung" und muss zu einem Erwartungswert
+    von exakt 0 führen - nicht zu einem geschenkten Gewinn, nur weil das Ziel
+    weiter entfernt liegt als der Stop.
+    """
+    fair = 1.0 / (1.0 + max(float(reward_risk), 1e-9))
+    return _sigmoid(_logit(fair) + float(edge_logodds))
+
+
 def _conviction(raw: float) -> float:
     """Rohen Bias-Betrag auf eine Überzeugung in [0, 1] abbilden."""
     return float(2.0 / (1.0 + np.exp(-CONVICTION_GAIN * abs(raw))) - 1.0)
@@ -67,6 +98,23 @@ class HorizonModels:
     @property
     def any_available(self) -> bool:
         return any(m is not None for m in (self.short, self.medium, self.long))
+
+    @property
+    def skill(self) -> float:
+        """Nachgewiesene Güte in [0, 1], aus der Out-of-Fold-AUC.
+
+        AUC 0.50 ist Münzwurf und ergibt 0; ab AUC 0.75 zählt das Modell voll.
+        Ohne belastbare Kennzahl gilt ein Modell als ahnungslos - das ist die
+        vorsichtige Annahme, nicht die bequeme.
+        """
+        aucs = [
+            float(getattr(getattr(m, "report", None), "auc", 0.5))
+            for m in (self.short, self.medium, self.long)
+            if m is not None
+        ]
+        if not aucs:
+            return 0.0
+        return float(min(max(4.0 * (max(aucs) - 0.5), 0.0), 1.0))
 
 
 class SignalEngine:
@@ -226,8 +274,16 @@ class SignalEngine:
         if proba is None:
             combined = rule.score
         else:
+            # Das Modell bekommt nur so viel Gewicht, wie es nachgewiesen hat.
+            # Mit festen Gewichten löscht ein ahnungsloses Modell (proba ~ 0.5,
+            # also Bias ~ 0) die Regelmeinung rechnerisch aus: Der Regelanteil
+            # schrumpft auf 45 %, und kein noch so gutes Setup erreicht dann
+            # die Mindestschwelle. Ein Modell ohne Wissen muss neutral sein,
+            # nicht vetoberechtigt.
             model_bias = (float(proba) - 0.5) * 2.0
-            combined = self.MODEL_WEIGHT * model_bias + self.RULE_WEIGHT * rule.score
+            w_model = self.MODEL_WEIGHT * self.models.skill
+            w_rule = 1.0 - w_model
+            combined = w_model * model_bias + w_rule * rule.score
 
         # Widersprechen sich Zeitebenen und Gesamtbild, wird der Wert gestaucht.
         if combined != 0 and alignment != 0 and np.sign(alignment) != np.sign(combined):
@@ -343,23 +399,28 @@ class SignalEngine:
 
     def _score_expectancy(self, signal: Signal, proba: "float | None", rule: RuleResult) -> None:
         """Erwartungswert in R - die Zahl, die am Ende zählt."""
-        rr = signal.risk_reward
-        if proba is not None:
-            p = float(proba) if signal.direction is Direction.LONG else 1.0 - float(proba)
-        else:
-            # Ohne Modell aus der Regelstärke schätzen, bewusst zurückhaltend
-            p = 0.5 + 0.16 * abs(rule.score)
-        p = clamp(p, 0.05, 0.95)
-        signal.prob_win = round(p, 4)
-
-        # Teilgewinne senken das mittlere Gewinn-R gegenüber dem vollen Ziel
-        avg_rr = rr
+        # Teilgewinne senken das mittlere Gewinn-R gegenüber dem vollen Ziel.
+        # Der Anker muss auf demselben CRV sitzen, gegen das am Ende gerechnet
+        # wird - sonst ist der Erwartungswert bei fehlendem Vorteil nicht null.
+        avg_rr = signal.risk_reward
         if len(signal.take_profits) > 1 and signal.tp_fractions:
             r_levels = [
                 abs(tp - signal.entry) / max(signal.risk_per_unit, 1e-12)
                 for tp in signal.take_profits
             ]
             avg_rr = float(np.dot(r_levels, signal.tp_fractions))
+
+        if proba is not None:
+            # Das Modell ist auf symmetrische Barrieren trainiert: 0.5 heißt
+            # "keine Richtungsmeinung". Für einen Short zählt die Gegenwahr-
+            # scheinlichkeit - bei symmetrischen Barrieren ist das zulässig.
+            p_dir = float(proba) if signal.direction is Direction.LONG else 1.0 - float(proba)
+            edge = _logit(p_dir)  # logit(0.5) = 0, der Nullpunkt stimmt also
+        else:
+            edge = RULE_EDGE_GAIN * abs(float(rule.score))
+
+        p = clamp(_win_probability(edge, avg_rr), 0.05, 0.95)
+        signal.prob_win = round(p, 4)
         signal.expected_r = round(float(p * avg_rr - (1.0 - p) * 1.0), 4)
 
     def _apply_filters(self, signal: Signal, row: pd.Series) -> None:

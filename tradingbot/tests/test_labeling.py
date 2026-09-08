@@ -50,7 +50,7 @@ def test_pessimistische_aufloesung_ist_nie_besser(bars, atr):
 
 
 def test_labels_sind_ausgewogen_und_verwertbar(bars, atr):
-    y, usable, res = direction_labels(bars, atr, 1.5, 1.5, 48, 0.25)
+    y, usable, res = direction_labels(bars, atr, 1.5, 48, 0.25)
     bericht = label_report(y, usable, res)
     assert bericht["anteil_verwertbar"] > 0.9
     assert 0.35 < bericht["anteil_aufwaerts"] < 0.65
@@ -59,7 +59,7 @@ def test_labels_sind_ausgewogen_und_verwertbar(bars, atr):
 
 def test_letzte_balken_sind_nicht_verwertbar(bars, atr):
     """Am Reihenende fehlt die Zukunft - diese Beispiele dürfen nicht ins Training."""
-    _, usable, _ = direction_labels(bars, atr, 1.5, 1.5, 48)
+    _, usable, _ = direction_labels(bars, atr, 1.5, 48)
     assert not usable.iloc[-48:].any()
 
 
@@ -85,7 +85,7 @@ def test_gleichzeitigkeit_zaehlt_richtig():
 
 
 def test_gewichte_sind_positiv_und_normiert(bars, atr):
-    _, _, res = direction_labels(bars, atr, 1.5, 1.5, 48)
+    _, _, res = direction_labels(bars, atr, 1.5, 48)
     w = sample_weights(res, decay=0.5)
     assert (w >= 0).all()
     assert w.sum() == pytest.approx(len(w), rel=1e-6)

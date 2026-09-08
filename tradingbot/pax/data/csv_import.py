@@ -27,7 +27,7 @@ import numpy as np
 import pandas as pd
 
 from ..types import Timeframe
-from ..utils import get_logger
+from ..utils import get_logger, to_utc_index
 
 log = get_logger("csv")
 
@@ -72,6 +72,7 @@ class ImportReport:
     delimiter: str = ""
     columns: dict[str, str] = field(default_factory=dict)
     tz_shift_hours: float = 0.0
+    tz: str = ""
     written: dict[str, int] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
 
@@ -84,7 +85,9 @@ class ImportReport:
             f"  Zeiteinheit        {self.timeframe}",
             f"  Zeitraum           {self.first} bis {self.last}",
         ]
-        if self.tz_shift_hours:
+        if self.tz:
+            lines.append(f"  Zeitzone           {self.tz} (mit Sommerzeit) auf UTC gerechnet")
+        elif self.tz_shift_hours:
             lines.append(f"  Zeitversatz        {self.tz_shift_hours:+g} Stunden auf UTC gerechnet")
         if self.written:
             lines.append("  geschrieben        " + ", ".join(
@@ -155,6 +158,7 @@ def _parse_datetime(series: pd.Series) -> pd.Series:
 def read_csv_bars(
     path: "str | Path",
     tz_shift_hours: float = 0.0,
+    tz: "str | None" = None,
     report: "ImportReport | None" = None,
 ) -> pd.DataFrame:
     """Eine CSV-Datei als OHLCV-Rahmen mit UTC-Index einlesen."""
@@ -223,14 +227,16 @@ def read_csv_bars(
         report.warnings.append(f"{vorher - len(out)} unvollständige Zeilen verworfen")
 
     out = out.set_index("time").sort_index()
-    if out.index.tz is None:
-        out.index = out.index.tz_localize("UTC")
-    else:
-        out.index = out.index.tz_convert("UTC")
-    if tz_shift_hours:
-        # Die Datei steht in Serverzeit; wir rechnen auf UTC zurück.
-        out.index = out.index - pd.Timedelta(hours=tz_shift_hours)
-        report.tz_shift_hours = tz_shift_hours
+    neuer_index, verworfen = to_utc_index(out.index, tz=tz, shift_hours=tz_shift_hours)
+    out.index = neuer_index
+    out.index.name = "time"
+    if verworfen:
+        out = out[out.index.notna()]
+        report.warnings.append(
+            f"{verworfen} Zeilen an der Zeitumstellung verworfen - die Stunde gibt es doppelt"
+        )
+    report.tz_shift_hours = tz_shift_hours
+    report.tz = tz or ""
 
     doppelt = int(out.index.duplicated().sum())
     if doppelt:

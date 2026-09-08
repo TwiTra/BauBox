@@ -35,6 +35,31 @@ Trefferquote leicht über dem Zufall bei ordentlichem Chance-Risiko-Verhältnis.
 reicht, wenn das Risikomanagement stimmt. Ohne dieses reicht auch ein großer
 Vorteil nicht.
 
+### Der bisher gemessene Stand
+
+Damit hier keine Behauptung ohne Zahl steht — der Vorwärtstest auf **echten
+EURUSD-Tickdaten** (33 Mio. Ticks, Januar 2025 bis September 2026, fünf Fenster,
+jedes Modell kannte nur Daten vor seinem Fenster):
+
+| | |
+|---|---|
+| Trades | 19 |
+| Erwartungswert | **−0,42 R je Trade** |
+| Summe | −8,0 R (−7,7 %) |
+| Trefferquote | 36,8 % |
+| AUC der Modelle | 0,538 ± 0,028 |
+| PSR | 0,03 |
+
+**Das ist kein Vorteil.** Die Modelle liegen mit AUC 0,538 knapp über dem Zufall,
+aber der Vorsprung trägt die Kosten nicht — allein Spread und Kommission fressen
+24 % des Bruttoergebnisses. Der PSR von 0,03 sagt genau das: Die Wahrscheinlichkeit,
+dass hier ein echter Vorteil vorliegt, ist gering. Bei 19 Trades ist umgekehrt auch
+das Gegenteil nicht bewiesen — die Stichprobe ist für beides zu klein.
+
+Diese Zahl steht hier, weil sie das Ergebnis ist. Sie durch Nachjustieren der
+Schwellen freundlicher zu machen, wäre genau die Anpassung an die Vergangenheit,
+gegen die der ganze Rest dieses Programms gebaut ist.
+
 ---
 
 ## Was drinsteckt
@@ -103,6 +128,19 @@ Die naive Frage „steht der Kurs in zehn Balken höher?“ ist für den Handel 
 sie ignoriert, dass die Position vorher ausgestoppt worden wäre. Stattdessen gilt:
 *Wird zuerst das Ziel oder zuerst der Stop getroffen?* Drei Barrieren begrenzen
 jedes Beispiel, alle in ATR skaliert.
+
+**Die Richtungsfrage braucht symmetrische Barrieren.** Das klingt nach einem
+Detail und ist keines. Bei einem Verhältnis von 2:1 trifft schon ein driftloser
+Zufallspfad die obere Barriere nur in einem Drittel der Fälle; ein sauber
+kalibriertes Modell gibt dann im Mittel 0,33 aus. Wer diesen Wert gegen 0,5 als
+neutralen Punkt liest, verteilt auf jedem Balken eine Short-Neigung, die nichts
+über den Markt aussagt, sondern nur über die Barrierewahl. `direction_labels`
+nimmt deshalb nur *einen* Abstand entgegen (`labels.direction_atr`, Vorgabe 1,5)
+— das Verhältnis 2:1 gehört zum Trade, nicht zur Richtungsfrage.
+
+Ebenso gilt: Ein weiter entferntes Ziel ist kein Vorteil, sondern ein selteneres
+Ereignis. Der Erwartungswert wird deshalb am fairen Wert verankert: Ohne
+erkennbaren Vorteil ist er exakt null, bei jedem Chance-Risiko-Verhältnis.
 
 Dazu Stichprobengewichte nach Einzigartigkeit: Überlappende Beispiele enthalten
 dieselbe Kursinformation mehrfach. Auf typischen Daten schrumpft die effektive
@@ -240,12 +278,31 @@ Tabulator, Kopfzeile in spitzen Klammern), MT4-Historie ohne Kopfzeile,
 Dukascopy, sowie allgemeine Dateien mit Semikolon oder deutschem Dezimalkomma.
 Die Datei wird auf alle konfigurierten Zeitebenen verdichtet und abgelegt.
 
+Für **Tickdaten** — die Rohausgabe von MT5 mit Geld- und Briefkurs je Tick —
+gibt es `--ticks`. Die Datei wird blockweise gelesen, sodass auch mehrere
+Gigabyte nicht in den Speicher müssen:
+
+```bash
+python main.py import EURUSD_ticks.csv --symbol EURUSD --ticks --tz Europe/Athens
+```
+
+Kerzen entstehen aus dem Mittelkurs. Einseitige Ticks (nur Geld- oder nur
+Briefkurs) werden je Seite fortgeschrieben; wer beide Seiten gemeinsam
+fortschreibt, erzeugt Kurssprünge, die es nie gab. Ist der Spread in der Datei
+unbrauchbar — bei vielen Exporten steht dort durchgehend 0 —, wird die Spalte
+verworfen statt stillschweigend übernommen. Ein Backtest ohne Spread ist ein
+Backtest ohne Kosten und damit wertlos.
+
 **Der Zeitversatz ist der wichtigste Schalter.** MT5 exportiert in *Serverzeit*,
 meist UTC+2 im Winter und UTC+3 im Sommer; gerechnet wird durchgehend in UTC.
 Ohne `--tz-shift` sind sämtliche Handelszeitfenster um Stunden verschoben, und
 man misst etwas anderes, als man glaubt. Zur Probe: Das Umsatzmaximum eines
 Devisenpaares liegt in UTC gegen 13-15 Uhr. Liegt es woanders, stimmt der
 Versatz nicht. Mit `--dry-run` lässt sich das prüfen, ohne etwas zu schreiben.
+
+Besser als `--tz-shift` ist `--tz Europe/Athens`: Ein fester Versatz ist ein
+halbes Jahr lang um eine Stunde daneben, weil die Sommerzeit fehlt. Die
+mehrdeutige Stunde der Zeitumstellung wird verworfen, nicht geraten.
 
 ## Der Weg zum Livebetrieb
 
@@ -376,7 +433,7 @@ tradingbot/
     learning/    Journal, Fehleranalyse, Weiterentwicklung
     live/        Wächter, Hauptschleife
     cli.py       Kommandozeile
-  tests/         189 Tests
+  tests/         209 Tests
 ```
 
 ```bash

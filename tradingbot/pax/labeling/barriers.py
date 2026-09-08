@@ -146,21 +146,31 @@ def barrier_outcome(
 def direction_labels(
     df: pd.DataFrame,
     atr: pd.Series,
-    tp_atr: float = 1.5,
-    sl_atr: float = 1.5,
+    barrier_atr: float = 1.5,
     max_bars: int = 48,
     min_return_atr: float = 0.25,
 ) -> tuple[pd.Series, pd.Series, BarrierResult]:
     """Richtungslabel für das Basismodell.
 
-    Symmetrische Barrieren, damit die Frage sauber lautet: "Geht es zuerst
-    hinreichend hoch oder zuerst hinreichend runter?"
+    Es gibt bewusst nur **einen** Barriereabstand, keine zwei. Die Frage muss
+    symmetrisch gestellt sein - "geht es zuerst hinreichend hoch oder zuerst
+    hinreichend runter?" -, sonst ist die Antwort keine Richtungsaussage mehr.
+
+    Warum das eine eigene Signatur wert ist: Bei einem Barriereverhältnis von
+    2:1 trifft schon ein driftloser Zufallspfad die obere Barriere nur in einem
+    Drittel der Fälle. Ein sauber kalibriertes Modell gibt dann im Mittel 0.33
+    aus. Wer diesen Wert gegen 0.5 als neutralen Punkt liest, bekommt auf jedem
+    einzelnen Balken eine Short-Neigung geschenkt, die nichts über den Markt
+    aussagt, sondern nur über die Barrierewahl. Ein Parameterpaar hier hat
+    genau diesen Fehler möglich gemacht; ein einzelner Abstand macht ihn
+    unmöglich. Das Verhältnis 2:1 gehört zum Trade (siehe `meta_labels`),
+    nicht zur Richtungsfrage.
 
     Rückgabe: (y in {0,1}, verwertbar-Maske, vollständiges Barriereergebnis).
     Zeitlimit-Fälle mit nennenswerter Bewegung werden nach der Bewegungsrichtung
     zugeordnet; alles darunter ist Rauschen und wird vom Training ausgeschlossen.
     """
-    res = barrier_outcome(df, atr, tp_atr, sl_atr, max_bars, side=1, pessimistic=True)
+    res = barrier_outcome(df, atr, barrier_atr, barrier_atr, max_bars, side=1, pessimistic=True)
     y = pd.Series(np.nan, index=df.index, name="y")
     y[res.label > 0] = 1.0
     y[res.label < 0] = 0.0

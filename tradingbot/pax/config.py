@@ -133,8 +133,11 @@ class FeatureConfig:
 class LabelConfig:
     """Triple-Barrier-Labeling nach López de Prado."""
 
-    tp_atr: float = 2.0  # oberer Barriere-Abstand in ATR
-    sl_atr: float = 1.0  # unterer Barriere-Abstand in ATR
+    tp_atr: float = 2.0  # Ziel des Trades in ATR (Trade-Konstruktion, Meta-Label)
+    sl_atr: float = 1.0  # Stop des Trades in ATR (Trade-Konstruktion, Meta-Label)
+    # Die Richtungsfrage braucht einen symmetrischen Abstand, sonst verschiebt
+    # sich der neutrale Punkt der Wahrscheinlichkeit weg von 0.5.
+    direction_atr: float = 1.5
     max_horizon_bars: int = 48  # vertikale Barriere
     min_return_atr: float = 0.25  # kleinere Bewegungen gelten als neutral
     use_meta_labeling: bool = True
