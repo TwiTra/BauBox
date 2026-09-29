@@ -43,3 +43,22 @@ python main.py backtest     # Strategie auf der Historie
 ```
 
 Unter Windows genügt ein Doppelklick auf `tradingbot/start.bat`.
+
+## Footprint für MetaTrader 5
+
+Orderflow-Chart: Jede Kerze wird in Preisebenen zerlegt, je Ebene steht das am
+Bid und am Ask gehandelte Volumen. Dazu Delta, Point of Control, Value Area und
+diagonale Ungleichgewichte. Zeichnet auf eine Leinwand statt auf Chartobjekte
+und bleibt dadurch auch bei vielen Kerzen flüssig.
+
+➡ **[Zum Footprint](orderflow/README.md)**
+
+```bash
+cd orderflow
+python install.py     # in den MetaTrader-Datenordner kopieren, dann in MetaEditor F7
+```
+
+Die Kopfzeile im Chart sagt immer, woraus gerechnet wird — echte Abschlüsse
+(Börse), Bid/Ask-Ticks (Forex) oder eine M1-Näherung. Das ist kein Detail:
+im Devisenhandel gibt es kein echtes Volumen, dort zählt der Indikator
+Kursbewegungen.
