@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -152,9 +154,13 @@ def _echte_geometrie(market):
     # Genug Balken, damit die Tagesebene ueberhaupt Merkmale traegt: Unter rund
     # 100 Tagesbalken ueberspringt der Builder die Ebene, und der Fehlalarm
     # bliebe unsichtbar - genau deshalb fiel er in der Testsuite nie auf.
-    basis = market.generate(bars=12000, timeframe="M15")
-    # Mitten am Tag enden, damit der laufende Tagesbalken unvollstaendig ist
-    basis = basis[basis.index <= basis.index[-1].normalize() + pd.Timedelta(hours=20)]
+    # Festes Ende statt "jetzt": Der synthetische Markt haengt seine Balken
+    # sonst an die Uhr des Rechners, und dann haengt die Geometrie davon ab,
+    # zu welcher Tageszeit der Test laeuft. Der 18.06.2025 ist ein Mittwoch;
+    # 20:00 mitten am Tag laesst den laufenden Tagesbalken unvollstaendig,
+    # genau darum geht es hier.
+    ende = datetime(2025, 6, 18, 20, 0, tzinfo=timezone.utc)
+    basis = market.generate(bars=12000, timeframe="M15", end=ende)
     return {
         "M15": basis,
         "H1": resample_ohlcv(basis, "H1"),
