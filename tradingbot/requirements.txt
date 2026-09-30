@@ -1,0 +1,15 @@
+# Pflicht - ohne diese läuft nichts
+numpy>=1.24
+pandas>=2.0
+scikit-learn>=1.3
+scipy>=1.10
+PyYAML>=6.0
+joblib>=1.3
+
+# Live-Handel: nur unter Windows mit installiertem MT5-Terminal.
+# Unter Linux/macOS schlägt die Installation fehl - das ist in Ordnung,
+# Analyse, Backtest und Training laufen auch ohne.
+MetaTrader5>=5.0.45 ; sys_platform == "win32"
+
+# Deutlich schnellerer Datenspeicher (sonst wird CSV genutzt)
+pyarrow>=14.0

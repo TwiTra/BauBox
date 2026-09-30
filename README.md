@@ -26,3 +26,39 @@ Der Plan kann an drei Orten liegen, umschaltbar im Menü:
 
 In beiden Mehrgeräte-Varianten wird automatisch gespeichert, live verteilt und
 bei gleichzeitigen Änderungen zusammengeführt statt überschrieben.
+
+## Handelssystem (PAX)
+
+Eigenständiges Price-Action-Handelssystem für MetaTrader 5. Liest die
+Marktstruktur auf drei Zeithorizonten, kombiniert mehrere KI-Modelle zu einer
+kalibrierten Wahrscheinlichkeit, verwaltet das Risiko und lernt aus jedem
+abgeschlossenen Trade dazu.
+
+➡ **[Zum Handelssystem](tradingbot/README.md)**
+
+```bash
+cd tradingbot
+python main.py selftest     # interne Prüfungen, allen voran auf Lookahead
+python main.py backtest     # Strategie auf der Historie
+```
+
+Unter Windows genügt ein Doppelklick auf `tradingbot/start.bat`.
+
+## Footprint für MetaTrader 5
+
+Orderflow-Chart: Jede Kerze wird in Preisebenen zerlegt, je Ebene steht das am
+Bid und am Ask gehandelte Volumen. Dazu Delta, Point of Control, Value Area und
+diagonale Ungleichgewichte. Zeichnet auf eine Leinwand statt auf Chartobjekte
+und bleibt dadurch auch bei vielen Kerzen flüssig.
+
+➡ **[Zum Footprint](orderflow/README.md)**
+
+```bash
+cd orderflow
+python install.py     # in den MetaTrader-Datenordner kopieren, dann in MetaEditor F7
+```
+
+Die Kopfzeile im Chart sagt immer, woraus gerechnet wird — echte Abschlüsse
+(Börse), Bid/Ask-Ticks (Forex) oder eine M1-Näherung. Das ist kein Detail:
+im Devisenhandel gibt es kein echtes Volumen, dort zählt der Indikator
+Kursbewegungen.

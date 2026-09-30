@@ -1,0 +1,74 @@
+name: Handelssystem testen
+
+# Führt die Testsuite des Handelssystems aus - und zusätzlich dessen eigenen
+# Selbsttest. Der ist hier der eigentliche Punkt: Er weist maschinell nach, dass
+# kein Merkmal in die Zukunft schaut. Ein Lookahead-Fehler macht jedes
+# Backtest-Ergebnis wertlos, fällt beim Lesen aber praktisch nie auf - deshalb
+# soll ihn bei jeder Änderung eine Maschine suchen, nicht ein Mensch.
+#
+# Läuft unter Linux. Das Paket MetaTrader5 gibt es nur für Windows und ist in
+# requirements.txt entsprechend markiert, wird hier also übersprungen. Alles
+# außer Live-Daten und Orderausführung funktioniert auch ohne.
+
+on:
+  push:
+    branches: [main]
+    paths: ['tradingbot/**', '.github/workflows/tradingbot-tests.yml']
+  pull_request:
+    paths: ['tradingbot/**', '.github/workflows/tradingbot-tests.yml']
+  workflow_dispatch:        # von Hand auslösbar
+
+permissions:
+  contents: read
+
+# Ein neuer Push macht den vorherigen Lauf überflüssig
+concurrency:
+  group: tradingbot-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false       # beide Versionen zu Ende prüfen, nicht abbrechen
+      matrix:
+        python-version: ['3.11', '3.12']
+    defaults:
+      run:
+        working-directory: tradingbot
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            tradingbot/requirements.txt
+            tradingbot/requirements-extra.txt
+
+      - name: Pakete installieren
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # LightGBM deckt den Zweig ab, in dem ein Modell fehlende Werte selbst
+          # verarbeitet. XGBoost und CatBoost bleiben draußen: Sie sind große
+          # Downloads und würden denselben Codepfad ein drittes Mal prüfen.
+          pip install pytest lightgbm
+
+      - name: Umgebung anzeigen
+        run: |
+          python -c "import sys; print(sys.version)"
+          python -c "import numpy, pandas, sklearn; print('numpy', numpy.__version__, '| pandas', pandas.__version__, '| sklearn', sklearn.__version__)"
+          python -c "from pax.models.zoo import available_members; from pax.config import ModelConfig; print('Ensemble:', available_members(ModelConfig().members))"
+
+      - name: Testsuite
+        run: python -m pytest tests/ -q
+
+      - name: Selbsttest - Kausalität, Zeitebenen, Barrieren, Risikogrenzen
+        run: python main.py selftest -n 6000
+
+      - name: Backtest zur Probe (nur Regelwerk)
+        run: python main.py backtest --rules-only -n 6000
