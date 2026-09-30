@@ -26,3 +26,21 @@ Der Plan kann an drei Orten liegen, umschaltbar im Menü:
 
 In beiden Mehrgeräte-Varianten wird automatisch gespeichert, live verteilt und
 bei gleichzeitigen Änderungen zusammengeführt statt überschrieben.
+## Dreizack für MetaTrader 5
+
+Price-Action-Leiste am Chartrand: Rechtecke **mit** Alarm (der nur bei genau
+diesen auslöst) und ohne, Trendlinien, und der Dreizack, der nach einem
+Ausbruch die maximale Bewegung abträgt — Stufe 1 als erstes Ziel, Stufe 2 als
+sicherer Takeprofit, Stufe 3 als Ende der Bewegung. Dazu ein Fenster oben
+rechts, das per Klick zwischen Kerzenrestzeit und laufender Handelssession
+samt Zeitspanne umschaltet.
+
+➡ **[Zum Dreizack](dreizack/README.md)**
+
+```bash
+cd dreizack
+python install.py     # in den MetaTrader-Datenordner kopieren, dann in MetaEditor F7
+```
+
+Die Leiste lässt sich oben rechts einklappen; das Zeitfenster bleibt dabei
+sichtbar.
